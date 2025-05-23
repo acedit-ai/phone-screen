@@ -1,8 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say>Connected</Say>
   <Connect>
     <Stream url="{{WS_URL}}" />
   </Connect>
-  <Say>Disconnected</Say>
 </Response>
