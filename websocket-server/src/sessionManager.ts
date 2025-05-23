@@ -97,7 +97,7 @@ export function handleCallConnection(
 
   // Try to associate with any waiting frontend connection
   const waitingFrontend = findWaitingFrontendConnection();
-  if (waitingFrontend) {
+  if (waitingFrontend && isOpen(waitingFrontend)) {
     session.frontendConn = waitingFrontend;
     console.log(`🔗 Associated frontend with new call session: ${sessionId}`);
   }
@@ -250,7 +250,7 @@ function handleTwilioMessage(data: RawData, sessionId: string) {
         );
         // Try to find any waiting frontend connection and associate it
         const waitingFrontend = findWaitingFrontendConnection();
-        if (waitingFrontend) {
+        if (waitingFrontend && isOpen(waitingFrontend)) {
           session.frontendConn = waitingFrontend;
           console.log(
             `🔗 Late-associated frontend with session: ${msg.start.streamSid}`
