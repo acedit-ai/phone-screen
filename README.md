@@ -4,7 +4,7 @@
 
 An open-source project to simulate job interview phone screens using OpenAI's Realtime API and Twilio. Practice your interviewing skills with an AI that calls you!
 
-<img width="1728" alt="Screenshot 2024-12-18 at 4 59 30 PM" src="https://github.com/user-attachments/assets/d3c8dcce-b339-410c-85ca-864a8e0fc326" />
+![Screenshot 2025-05-23 at 5 46 08 pm](https://github.com/user-attachments/assets/4c6333ad-eadc-4617-927c-7a43901a441d)
 
 ## Supported Regions
 
