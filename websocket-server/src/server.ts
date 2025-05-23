@@ -3,8 +3,6 @@ import { WebSocketServer, WebSocket } from "ws";
 import { IncomingMessage } from "http";
 import dotenv from "dotenv";
 import http from "http";
-import { readFileSync } from "fs";
-import { join } from "path";
 import cors from "cors";
 import {
   handleCallConnection,
@@ -29,9 +27,6 @@ const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
 
 app.use(express.urlencoded({ extended: false }));
-
-const twimlPath = join(__dirname, "twiml.xml");
-const twimlTemplate = readFileSync(twimlPath, "utf-8");
 
 app.get("/public-url", (req, res) => {
   res.json({ publicUrl: PUBLIC_URL });
