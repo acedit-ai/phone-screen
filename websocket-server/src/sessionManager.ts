@@ -2,6 +2,7 @@ import { RawData, WebSocket } from "ws";
 import functions from "./functionHandlers";
 
 interface Session {
+  id: string; // Unique identifier for this session
   twilioConn?: WebSocket;
   frontendConn?: WebSocket;
   modelConn?: WebSocket;
@@ -13,53 +14,102 @@ interface Session {
   openAIApiKey?: string;
 }
 
-let session: Session = {};
+// Map to store multiple sessions, keyed by streamSid (or temporary ID)
+const sessions = new Map<string, Session>();
+
+// Generate unique session ID for temporary sessions before streamSid is available
+function generateSessionId(): string {
+  return `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+}
+
+// Find session by WebSocket connection
+function findSessionByWebSocket(
+  ws: WebSocket,
+  type: "twilio" | "frontend" | "model"
+): Session | undefined {
+  for (const session of sessions.values()) {
+    if (type === "twilio" && session.twilioConn === ws) return session;
+    if (type === "frontend" && session.frontendConn === ws) return session;
+    if (type === "model" && session.modelConn === ws) return session;
+  }
+  return undefined;
+}
 
 export function handleCallConnection(ws: WebSocket, openAIApiKey: string) {
   console.log("🎤 Setting up call connection with OpenAI Realtime API");
-  cleanupConnection(session.twilioConn);
-  session.twilioConn = ws;
-  session.openAIApiKey = openAIApiKey;
 
-  ws.on("message", handleTwilioMessage);
+  // Create new session with temporary ID
+  const sessionId = generateSessionId();
+  const session: Session = {
+    id: sessionId,
+    twilioConn: ws,
+    openAIApiKey,
+  };
+
+  sessions.set(sessionId, session);
+  console.log(`📞 Created new session: ${sessionId}`);
+
+  ws.on("message", (data) => handleTwilioMessage(data, sessionId));
   ws.on("error", (error) => {
     console.error("❌ Call WebSocket error:", error);
     ws.close();
   });
   ws.on("close", () => {
-    console.log("📞 Call connection closed - cleaning up session");
-    
+    const session = sessions.get(sessionId);
+    if (!session) return;
+
+    console.log(
+      `📞 Call connection closed - cleaning up session: ${sessionId}`
+    );
+
     // Notify frontend that call ended BEFORE cleaning up
     if (session.frontendConn) {
       jsonSend(session.frontendConn, {
         type: "call.status_changed",
-        status: "ended"
+        status: "ended",
+        sessionId: sessionId,
       });
     }
-    
+
     cleanupConnection(session.modelConn);
     cleanupConnection(session.twilioConn);
-    session.twilioConn = undefined;
-    session.modelConn = undefined;
-    session.streamSid = undefined;
-    session.lastAssistantItem = undefined;
-    session.responseStartTimestamp = undefined;
-    session.latestMediaTimestamp = undefined;
-    if (!session.frontendConn) session = {};
+
+    // Remove session from map
+    sessions.delete(sessionId);
+
+    // If session was moved to streamSid key, also remove that
+    if (session.streamSid && sessions.has(session.streamSid)) {
+      sessions.delete(session.streamSid);
+    }
   });
 }
 
 export function handleFrontendConnection(ws: WebSocket) {
   console.log("🖥️  Setting up frontend connection for logs");
-  cleanupConnection(session.frontendConn);
-  session.frontendConn = ws;
 
-  ws.on("message", handleFrontendMessage);
+  // For now, associate frontend with the most recent session
+  // In a production app, you might want to pass a session ID from the frontend
+  const latestSession = Array.from(sessions.values()).pop();
+  if (latestSession) {
+    cleanupConnection(latestSession.frontendConn);
+    latestSession.frontendConn = ws;
+    console.log(`🖥️  Frontend connected to session: ${latestSession.id}`);
+  }
+
+  ws.on("message", (data) => {
+    const session = findSessionByWebSocket(ws, "frontend");
+    if (session) {
+      handleFrontendMessage(data, session.streamSid || session.id);
+    }
+  });
+
   ws.on("close", () => {
     console.log("🖥️  Frontend connection closed");
-    cleanupConnection(session.frontendConn);
-    session.frontendConn = undefined;
-    if (!session.twilioConn && !session.modelConn) session = {};
+    const session = findSessionByWebSocket(ws, "frontend");
+    if (session) {
+      cleanupConnection(session.frontendConn);
+      session.frontendConn = undefined;
+    }
   });
 }
 
@@ -91,9 +141,15 @@ async function handleFunctionCall(item: { name: string; arguments: string }) {
   }
 }
 
-function handleTwilioMessage(data: RawData) {
+function handleTwilioMessage(data: RawData, sessionId: string) {
   const msg = parseMessage(data);
   if (!msg) return;
+
+  const session = sessions.get(sessionId);
+  if (!session) {
+    console.error(`❌ Session not found: ${sessionId}`);
+    return;
+  }
 
   switch (msg.event) {
     case "start":
@@ -102,16 +158,26 @@ function handleTwilioMessage(data: RawData) {
       session.latestMediaTimestamp = 0;
       session.lastAssistantItem = undefined;
       session.responseStartTimestamp = undefined;
-      tryConnectModel();
-      
+
+      // Move session to be keyed by streamSid for easier lookup
+      sessions.set(msg.start.streamSid, session);
+      if (sessionId !== msg.start.streamSid) {
+        sessions.delete(sessionId); // Remove old temporary key
+      }
+
+      tryConnectModel(msg.start.streamSid);
+
       // Notify frontend that call started
       if (session.frontendConn) {
         jsonSend(session.frontendConn, {
           type: "call.status_changed",
-          status: "connected"
+          status: "connected",
+          sessionId: session.id,
+          streamSid: msg.start.streamSid,
         });
       }
       break;
+
     case "media":
       session.latestMediaTimestamp = msg.media.timestamp;
       if (isOpen(session.modelConn)) {
@@ -121,25 +187,31 @@ function handleTwilioMessage(data: RawData) {
         });
       }
       break;
+
     case "close":
       console.log("🎬 Call stream ended");
-      
+
       // Notify frontend that call ended BEFORE closing connections
       if (session.frontendConn) {
         jsonSend(session.frontendConn, {
           type: "call.status_changed",
-          status: "ended"
+          status: "ended",
+          sessionId: session.id,
+          streamSid: session.streamSid,
         });
       }
-      
-      closeAllConnections();
+
+      closeAllConnections(session.streamSid || sessionId);
       break;
   }
 }
 
-function handleFrontendMessage(data: RawData) {
+function handleFrontendMessage(data: RawData, sessionKey: string) {
   const msg = parseMessage(data);
   if (!msg) return;
+
+  const session = sessions.get(sessionKey);
+  if (!session) return;
 
   if (isOpen(session.modelConn)) {
     jsonSend(session.modelConn, msg);
@@ -150,14 +222,19 @@ function handleFrontendMessage(data: RawData) {
   }
 }
 
-function tryConnectModel() {
+function tryConnectModel(sessionKey: string) {
+  const session = sessions.get(sessionKey);
+  if (!session) return;
+
   if (!session.twilioConn || !session.streamSid || !session.openAIApiKey) {
     console.log("⚠️  Missing requirements for OpenAI connection");
     return;
   }
   if (isOpen(session.modelConn)) return;
 
-  console.log("🤖 Connecting to OpenAI Realtime API...");
+  console.log(
+    `🤖 Connecting to OpenAI Realtime API for session: ${sessionKey}`
+  );
   session.modelConn = new WebSocket(
     "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-12-17",
     {
@@ -169,9 +246,11 @@ function tryConnectModel() {
   );
 
   session.modelConn.on("open", () => {
-    console.log("✅ Connected to OpenAI Realtime API");
+    console.log(
+      `✅ Connected to OpenAI Realtime API for session: ${sessionKey}`
+    );
     const config = session.saved_config || {};
-    
+
     // Configure the AI as a phone interview assistant
     const interviewInstructions = `You are a professional AI phone interviewer conducting a technical phone screening. Your role is to:
     
@@ -184,7 +263,7 @@ function tryConnectModel() {
     7. The interview should last 10-15 minutes
     
     Begin by greeting the candidate and introducing the purpose of the call. Ask them if they're ready to start the interview, then proceed with your questions.`;
-    
+
     jsonSend(session.modelConn, {
       type: "session.update",
       session: {
@@ -198,7 +277,7 @@ function tryConnectModel() {
         ...config,
       },
     });
-    
+
     // Send an initial greeting to start the conversation
     setTimeout(() => {
       if (isOpen(session.modelConn)) {
@@ -211,36 +290,44 @@ function tryConnectModel() {
             content: [
               {
                 type: "input_text",
-                text: "Hello, I just answered the phone. Please start the interview."
-              }
-            ]
-          }
+                text: "Hello, I just answered the phone. Please start the interview.",
+              },
+            ],
+          },
         });
         jsonSend(session.modelConn, { type: "response.create" });
       }
     }, 1000); // Wait 1 second after connection to ensure everything is set up
   });
 
-  session.modelConn.on("message", handleModelMessage);
+  session.modelConn.on("message", (data) =>
+    handleModelMessage(data, sessionKey)
+  );
   session.modelConn.on("error", (error) => {
-    console.error("❌ OpenAI WebSocket error:", error);
-    closeModel();
+    console.error(
+      `❌ OpenAI WebSocket error for session ${sessionKey}:`,
+      error
+    );
+    closeModel(sessionKey);
   });
   session.modelConn.on("close", () => {
-    console.log("🤖 OpenAI connection closed");
-    closeModel();
+    console.log(`🤖 OpenAI connection closed for session: ${sessionKey}`);
+    closeModel(sessionKey);
   });
 }
 
-function handleModelMessage(data: RawData) {
+function handleModelMessage(data: RawData, sessionKey: string) {
   const event = parseMessage(data);
   if (!event) return;
+
+  const session = sessions.get(sessionKey);
+  if (!session) return;
 
   jsonSend(session.frontendConn, event);
 
   switch (event.type) {
     case "input_audio_buffer.speech_started":
-      handleTruncation();
+      handleTruncation(sessionKey);
       break;
 
     case "response.audio.delta":
@@ -289,7 +376,10 @@ function handleModelMessage(data: RawData) {
   }
 }
 
-function handleTruncation() {
+function handleTruncation(sessionKey: string) {
+  const session = sessions.get(sessionKey);
+  if (!session) return;
+
   if (
     !session.lastAssistantItem ||
     session.responseStartTimestamp === undefined
@@ -320,13 +410,23 @@ function handleTruncation() {
   session.responseStartTimestamp = undefined;
 }
 
-function closeModel() {
+function closeModel(sessionKey: string) {
+  const session = sessions.get(sessionKey);
+  if (!session) return;
+
   cleanupConnection(session.modelConn);
   session.modelConn = undefined;
-  if (!session.twilioConn && !session.frontendConn) session = {};
+
+  // Only remove session if all connections are closed
+  if (!session.twilioConn && !session.frontendConn) {
+    sessions.delete(sessionKey);
+  }
 }
 
-function closeAllConnections() {
+function closeAllConnections(sessionKey: string) {
+  const session = sessions.get(sessionKey);
+  if (!session) return;
+
   if (session.twilioConn) {
     session.twilioConn.close();
     session.twilioConn = undefined;
@@ -339,11 +439,16 @@ function closeAllConnections() {
     session.frontendConn.close();
     session.frontendConn = undefined;
   }
+
+  // Clean up session data
   session.streamSid = undefined;
   session.lastAssistantItem = undefined;
   session.responseStartTimestamp = undefined;
   session.latestMediaTimestamp = undefined;
   session.saved_config = undefined;
+
+  // Remove session from map
+  sessions.delete(sessionKey);
 }
 
 function cleanupConnection(ws?: WebSocket) {
