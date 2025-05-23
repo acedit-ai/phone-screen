@@ -156,6 +156,54 @@ Once these steps are completed, any push to the `main` branch will trigger a dep
 
 You can manage your Fly.io applications and view logs via the `flyctl` command-line tool or the [Fly.io dashboard](https://fly.io/dashboard).
 
+### Deploying the Webapp to Vercel
+
+The `webapp` (Next.js frontend) can be easily deployed to Vercel, which offers a seamless experience for Next.js applications, including automatic CI/CD with GitHub.
+
+1.  **Sign up/Log in to Vercel:**
+    *   Go to [vercel.com](https://vercel.com/) and sign up for a new account or log in if you already have one. You can use your GitHub account for quick registration.
+
+2.  **Install the Vercel CLI (Optional, but Recommended for Manual Deploys):**
+    While Vercel excels with Git integration, the CLI can be useful.
+    ```shell
+    npm i -g vercel
+    ```
+
+3.  **Deploying via Vercel Dashboard (Recommended for CI/CD):**
+    *   On your Vercel dashboard, click "Add New..." > "Project".
+    *   Connect your GitHub account and select the repository for this project.
+    *   Vercel will automatically detect that it's a Next.js application.
+    *   Configure the project settings:
+        *   **Root Directory:** If your `webapp` is in a subdirectory (e.g., `/webapp`), specify this. Otherwise, Vercel usually detects it correctly.
+        *   **Build and Output Settings:** Vercel typically configures these automatically for Next.js.
+        *   **Environment Variables:** Add any necessary environment variables (e.g., API keys, your deployed `websocket-server` URL) through the Vercel project settings. Refer to `webapp/.env.example` for variables you might need. For local development, you can sync these variables from your Vercel project by running `npm run fetch-env` in the `webapp` directory (this command is defined in `webapp/package.json` and uses `npx vercel env pull .env.development.local`).
+    *   Click "Deploy".
+    *   Once set up, Vercel will automatically redeploy your `webapp` whenever you push changes to the connected branch (e.g., `main`) or merge pull requests.
+
+4.  **Deploying Manually with Vercel CLI (Alternative):**
+    *   Navigate to the `webapp` directory:
+        ```shell
+        cd webapp
+        ```
+    *   Log in to Vercel (if you haven't already):
+        ```shell
+        vercel login
+        ```
+    *   Link your project (first time only):
+        ```shell
+        vercel link
+        ```
+    *   Deploy to production:
+        ```shell
+        vercel --prod
+        ```
+    *   To deploy a preview (non-production):
+        ```shell
+        vercel
+        ```
+
+Your `webapp` will then be deployed, and Vercel will provide you with a URL.
+
 # Additional Notes
 
 This repo isn't polished, and the security practices leave some to be desired. Please only use this as reference, and make sure to audit your app with security and engineering before deploying!

@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "fetch-env": "npx vercel env pull .env.development.local"
   },
   "dependencies": {
     "@radix-ui/react-checkbox": "^1.1.1",
