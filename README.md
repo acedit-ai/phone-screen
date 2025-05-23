@@ -139,18 +139,30 @@ To get started with Fly.io:
 3.  **Set Up GitHub Actions for Automatic Deployment:**
     The necessary GitHub Actions workflow files (`.github/workflows/deploy.yml` and `.github/workflows/pr-preview.yml`) are already included in this repository. To enable them:
     *   **Generate a Fly.io API Token:**
+        The `fly-pr-review-apps` action uses this token to interact with your Fly.io account.
         ```shell
         flyctl auth token
         ```
-        Copy the displayed token.
-    *   **Store the Token in GitHub Secrets:**
+        Copy the displayed token. The `deploy.yml` workflow for deploying to `main` also uses this token.
+
+    *   **Identify Your Fly.io Organization Name:**
+        Your Fly.io applications are scoped to an organization. This is often `personal` for individual accounts. You can find your organization name by:
+        *   Logging into the [Fly.io dashboard](https://fly.io/dashboard).
+        *   Running the command: `flyctl orgs list`
+        Make a note of the organization slug you want to use.
+
+    *   **Store Secrets in GitHub:**
         1.  Go to your GitHub repository's page.
         2.  Click on "Settings".
         3.  In the left sidebar, navigate to "Secrets and variables" > "Actions".
-        4.  Click the "New repository secret" button.
-        5.  Name the secret `FLY_API_TOKEN`.
-        6.  Paste the token value you copied into the "Secret" field.
-        7.  Click "Add secret".
+        4.  Click the "New repository secret" button to add `FLY_API_TOKEN`:
+            *   Name: `FLY_API_TOKEN`
+            *   Secret: Paste the token value you copied.
+            *   Click "Add secret".
+        5.  Click "New repository secret" again to add `FLY_ORG`:
+            *   Name: `FLY_ORG`
+            *   Secret: Enter your Fly.io organization name (e.g., `personal` or the slug from `flyctl orgs list`).
+            *   Click "Add secret".
 
 Once these steps are completed, any push to the `main` branch will trigger a deployment of the `websocket-server` to Fly.io. Pull requests will also automatically create preview environments.
 

@@ -10,11 +10,10 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - name: Deploy Preview App
-        uses: superfly/fly-pr-review-apps@v1
+        uses: superfly/fly-pr-review-apps@1.2.1
         with:
           name: pr-${{ github.event.number }}-${{ github.repository_owner }}-${{ github.event.repository.name }}
           path: ./websocket-server
-          org: personal
-          region: syd
+          org: ${{ secrets.FLY_ORG }}
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
