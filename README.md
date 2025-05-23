@@ -321,7 +321,19 @@ To get started with Fly.io:
         Follow the prompts. This will detect your Node.js application, ask you to choose an organization and a region. It will also generate a `fly.toml` configuration file and a `Dockerfile` in the `websocket-server` directory. Review these files to ensure they meet your needs.
         *Note: For the hobby plan, ensure you select a region and instance size that aligns with the free tier or your budget.*
 
-3.  **Set Up GitHub Actions for Automatic Deployment:**
+3.  **Set Environment Variables for Your Fly.io App:**
+    Before deploying, you must set the required environment variables as secrets in Fly.io:
+    ```shell
+    # Required: OpenAI API key for the Realtime API
+    fly secrets set OPENAI_API_KEY=your_openai_api_key
+    
+    # The PUBLIC_URL will be automatically set to your Fly.io app URL
+    # No need to set this manually - it will be https://your-app-name.fly.dev
+    ```
+    
+    **⚠️ Important:** The websocket-server requires the `OPENAI_API_KEY` to function. Without this secret, your deployment will fail to connect to OpenAI's Realtime API.
+
+4.  **Set Up GitHub Actions for Automatic Deployment:**
     The necessary GitHub Actions workflow files (`.github/workflows/deploy.yml` and `.github/workflows/pr-preview.yml`) are already included in this repository. To enable them:
     *   **Generate a Fly.io API Token:**
         The `fly-pr-review-apps` action uses this token to interact with your Fly.io account.
