@@ -1,4 +1,4 @@
-name: PR Preview
+name: Websocket Server PR Preview
 
 on:
   pull_request:
@@ -12,8 +12,9 @@ jobs:
       - name: Deploy Preview App
         uses: superfly/fly-pr-review-apps@1.0.0
         with:
-          name: pr-${{ github.event.number }}-${{ github.repository }}
+          name: pr-${{ github.event.number }}-${{ github.repository_owner }}-${{ github.event.repository.name }}
+          path: ./websocket-server
           org: personal
           region: syd
         env:
-          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }} 
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
