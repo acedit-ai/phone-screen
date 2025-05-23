@@ -44,9 +44,39 @@ app.all("/twiml", (req, res) => {
   wsUrl.protocol = "wss:";
   wsUrl.pathname = `/call`;
 
-  const twimlContent = twimlTemplate.replace("{{WS_URL}}", wsUrl.toString());
-  console.log("🔗 Generated TwiML with WebSocket URL:", wsUrl.toString());
-  res.type("text/xml").send(twimlContent);
+  // Extract job configuration from query parameters
+  const { jobTitle, company, jobDescription, voice } = req.query;
+  if (jobTitle || company || jobDescription || voice) {
+    console.log(
+      `📋 Job config in TwiML: ${jobTitle} at ${company}, voice: ${voice}`
+    );
+    // URL.searchParams.set() automatically handles URL encoding
+    if (jobTitle) wsUrl.searchParams.set("jobTitle", jobTitle as string);
+    if (company) wsUrl.searchParams.set("company", company as string);
+    if (jobDescription)
+      wsUrl.searchParams.set("jobDescription", jobDescription as string);
+    if (voice) wsUrl.searchParams.set("voice", voice as string);
+  }
+
+  const websocketUrl = wsUrl.toString();
+  console.log("🔗 Generated WebSocket URL:", websocketUrl);
+
+  // Escape the URL for XML - replace & with &amp; to fix XML parsing
+  const xmlEscapedUrl = websocketUrl.replace(/&/g, "&amp;");
+
+  // Ensure no leading/trailing whitespace and proper XML structure
+  const twimlContent = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Connect>
+    <Stream url="${xmlEscapedUrl}" />
+  </Connect>
+</Response>`.trim();
+
+  console.log("📄 Generated TwiML:", twimlContent);
+
+  // Set proper content type and send
+  res.set("Content-Type", "text/xml; charset=utf-8");
+  res.send(twimlContent);
 });
 
 // New endpoint to list available tools (schemas)
@@ -72,12 +102,27 @@ wss.on("connection", (ws: WebSocket, req: IncomingMessage) => {
 
   if (type === "call") {
     console.log("📞 Call connection established - starting audio stream");
+
+    // Extract job configuration from URL parameters
+    const jobConfig = {
+      jobTitle: url.searchParams.get("jobTitle") || undefined,
+      company: url.searchParams.get("company") || undefined,
+      jobDescription: url.searchParams.get("jobDescription") || undefined,
+      voice: url.searchParams.get("voice") || undefined,
+    };
+
+    if (jobConfig.jobTitle || jobConfig.company) {
+      console.log(
+        `📋 Job configuration from URL: ${jobConfig.jobTitle} at ${jobConfig.company}`
+      );
+    }
+
     if (currentCall) {
       console.log("⚠️  Closing previous call connection");
       currentCall.close();
     }
     currentCall = ws;
-    handleCallConnection(currentCall, OPENAI_API_KEY);
+    handleCallConnection(currentCall, OPENAI_API_KEY, jobConfig);
   } else if (type === "logs") {
     console.log("📊 Frontend logs connection established");
     if (currentLogs) {
@@ -100,6 +145,8 @@ server.listen(PORT, () => {
   if (PUBLIC_URL) {
     console.log(`🌐 Public URL: ${PUBLIC_URL}`);
   } else {
-    console.log("⚠️  PUBLIC_URL not set - make sure to configure for production");
+    console.log(
+      "⚠️  PUBLIC_URL not set - make sure to configure for production"
+    );
   }
 });

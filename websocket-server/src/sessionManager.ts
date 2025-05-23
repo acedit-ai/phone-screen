@@ -1,4 +1,5 @@
 import { RawData, WebSocket } from "ws";
+import dedent from "dedent";
 import functions from "./functionHandlers";
 
 interface Session {
@@ -12,10 +13,18 @@ interface Session {
   responseStartTimestamp?: number;
   latestMediaTimestamp?: number;
   openAIApiKey?: string;
+  // Job configuration
+  jobTitle?: string;
+  company?: string;
+  jobDescription?: string;
+  voice?: string;
 }
 
 // Map to store multiple sessions, keyed by streamSid (or temporary ID)
 const sessions = new Map<string, Session>();
+
+// Store frontend connections that are waiting for a call session
+const waitingFrontendConnections = new Set<WebSocket>();
 
 // Generate unique session ID for temporary sessions before streamSid is available
 function generateSessionId(): string {
@@ -27,15 +36,41 @@ function findSessionByWebSocket(
   ws: WebSocket,
   type: "twilio" | "frontend" | "model"
 ): Session | undefined {
-  for (const session of sessions.values()) {
-    if (type === "twilio" && session.twilioConn === ws) return session;
-    if (type === "frontend" && session.frontendConn === ws) return session;
-    if (type === "model" && session.modelConn === ws) return session;
+  for (const [key, session] of sessions.entries()) {
+    if (type === "twilio" && session.twilioConn === ws) {
+      return session;
+    }
+    if (type === "frontend" && session.frontendConn === ws) {
+      return session;
+    }
+    if (type === "model" && session.modelConn === ws) {
+      return session;
+    }
+  }
+
+  return undefined;
+}
+
+// Find a waiting frontend connection to associate with a new call
+function findWaitingFrontendConnection(): WebSocket | undefined {
+  const frontendWs = Array.from(waitingFrontendConnections).shift();
+  if (frontendWs) {
+    waitingFrontendConnections.delete(frontendWs);
+    return frontendWs;
   }
   return undefined;
 }
 
-export function handleCallConnection(ws: WebSocket, openAIApiKey: string) {
+export function handleCallConnection(
+  ws: WebSocket,
+  openAIApiKey: string,
+  jobConfig?: {
+    jobTitle?: string;
+    company?: string;
+    jobDescription?: string;
+    voice?: string;
+  }
+) {
   console.log("🎤 Setting up call connection with OpenAI Realtime API");
 
   // Create new session with temporary ID
@@ -44,22 +79,56 @@ export function handleCallConnection(ws: WebSocket, openAIApiKey: string) {
     id: sessionId,
     twilioConn: ws,
     openAIApiKey,
+    // Set job configuration immediately if provided
+    jobTitle: jobConfig?.jobTitle,
+    company: jobConfig?.company,
+    jobDescription: jobConfig?.jobDescription,
+    voice: jobConfig?.voice,
   };
 
   sessions.set(sessionId, session);
   console.log(`📞 Created new session: ${sessionId}`);
 
-  ws.on("message", (data) => handleTwilioMessage(data, sessionId));
+  if (jobConfig && (jobConfig.jobTitle || jobConfig.company)) {
+    console.log(
+      `📋 Session created with job config: ${jobConfig.jobTitle} at ${jobConfig.company}`
+    );
+  }
+
+  // Try to associate with any waiting frontend connection
+  const waitingFrontend = findWaitingFrontendConnection();
+  if (waitingFrontend) {
+    session.frontendConn = waitingFrontend;
+    console.log(`🔗 Associated frontend with new call session: ${sessionId}`);
+  }
+
+  // Create a wrapper function that dynamically finds the session
+  const handleMessage = (data: RawData) => {
+    // First try the current session (which might have been moved to streamSid)
+    let currentSession = findSessionByWebSocket(ws, "twilio");
+
+    if (!currentSession) {
+      console.error(`❌ No session found for Twilio WebSocket`);
+      return;
+    }
+
+    // Use the current key (either original sessionId or streamSid)
+    const currentKey = currentSession.streamSid || currentSession.id;
+    handleTwilioMessage(data, currentKey);
+  };
+
+  ws.on("message", handleMessage);
   ws.on("error", (error) => {
     console.error("❌ Call WebSocket error:", error);
     ws.close();
   });
   ws.on("close", () => {
-    const session = sessions.get(sessionId);
+    const session = findSessionByWebSocket(ws, "twilio");
     if (!session) return;
 
+    const sessionKey = session.streamSid || session.id;
     console.log(
-      `📞 Call connection closed - cleaning up session: ${sessionId}`
+      `📞 Call connection closed - cleaning up session: ${sessionKey}`
     );
 
     // Notify frontend that call ended BEFORE cleaning up
@@ -67,17 +136,15 @@ export function handleCallConnection(ws: WebSocket, openAIApiKey: string) {
       jsonSend(session.frontendConn, {
         type: "call.status_changed",
         status: "ended",
-        sessionId: sessionId,
+        sessionId: session.id,
       });
     }
 
     cleanupConnection(session.modelConn);
     cleanupConnection(session.twilioConn);
 
-    // Remove session from map
-    sessions.delete(sessionId);
-
-    // If session was moved to streamSid key, also remove that
+    // Remove session from both possible keys
+    sessions.delete(session.id);
     if (session.streamSid && sessions.has(session.streamSid)) {
       sessions.delete(session.streamSid);
     }
@@ -87,24 +154,19 @@ export function handleCallConnection(ws: WebSocket, openAIApiKey: string) {
 export function handleFrontendConnection(ws: WebSocket) {
   console.log("🖥️  Setting up frontend connection for logs");
 
-  // For now, associate frontend with the most recent session
-  // In a production app, you might want to pass a session ID from the frontend
-  const latestSession = Array.from(sessions.values()).pop();
-  if (latestSession) {
-    cleanupConnection(latestSession.frontendConn);
-    latestSession.frontendConn = ws;
-    console.log(`🖥️  Frontend connected to session: ${latestSession.id}`);
-  }
+  // Add to waiting connections - will be associated when a call starts
+  waitingFrontendConnections.add(ws);
+  console.log(
+    `🔄 Frontend added to waiting connections (${waitingFrontendConnections.size} waiting)`
+  );
 
   ws.on("message", (data) => {
-    const session = findSessionByWebSocket(ws, "frontend");
-    if (session) {
-      handleFrontendMessage(data, session.streamSid || session.id);
-    }
+    handleFrontendMessage(data, ws);
   });
 
   ws.on("close", () => {
     console.log("🖥️  Frontend connection closed");
+    waitingFrontendConnections.delete(ws);
     const session = findSessionByWebSocket(ws, "frontend");
     if (session) {
       cleanupConnection(session.frontendConn);
@@ -160,9 +222,13 @@ function handleTwilioMessage(data: RawData, sessionId: string) {
       session.responseStartTimestamp = undefined;
 
       // Move session to be keyed by streamSid for easier lookup
+      // But keep the session object reference intact to preserve frontend connection
       sessions.set(msg.start.streamSid, session);
       if (sessionId !== msg.start.streamSid) {
         sessions.delete(sessionId); // Remove old temporary key
+        console.log(
+          `🔄 Session moved from ${sessionId} to ${msg.start.streamSid}`
+        );
       }
 
       tryConnectModel(msg.start.streamSid);
@@ -175,6 +241,27 @@ function handleTwilioMessage(data: RawData, sessionId: string) {
           sessionId: session.id,
           streamSid: msg.start.streamSid,
         });
+        console.log(
+          `✅ Frontend notified of session connection: ${msg.start.streamSid}`
+        );
+      } else {
+        console.log(
+          `⚠️ No frontend connection found for session: ${msg.start.streamSid}`
+        );
+        // Try to find any waiting frontend connection and associate it
+        const waitingFrontend = findWaitingFrontendConnection();
+        if (waitingFrontend) {
+          session.frontendConn = waitingFrontend;
+          console.log(
+            `🔗 Late-associated frontend with session: ${msg.start.streamSid}`
+          );
+          jsonSend(session.frontendConn, {
+            type: "call.status_changed",
+            status: "connected",
+            sessionId: session.id,
+            streamSid: msg.start.streamSid,
+          });
+        }
       }
       break;
 
@@ -206,12 +293,95 @@ function handleTwilioMessage(data: RawData, sessionId: string) {
   }
 }
 
-function handleFrontendMessage(data: RawData, sessionKey: string) {
+function handleFrontendMessage(data: RawData, ws: WebSocket) {
   const msg = parseMessage(data);
   if (!msg) return;
 
-  const session = sessions.get(sessionKey);
-  if (!session) return;
+  let session = findSessionByWebSocket(ws, "frontend");
+
+  // If no session found, try multiple strategies to find the right session
+  if (!session) {
+    console.log(
+      `⚠️ No session found for frontend WebSocket, trying fallback strategies...`
+    );
+
+    // Strategy 1: If this is a job configuration, try to find the most recent session
+    if (msg.type === "job.configuration") {
+      // Find the most recently created session (likely the call session)
+      const recentSession = Array.from(sessions.values())
+        .sort((a, b) => b.id.localeCompare(a.id))
+        .find((s) => s.twilioConn && !s.frontendConn);
+
+      if (recentSession) {
+        recentSession.frontendConn = ws;
+        waitingFrontendConnections.delete(ws);
+        session = recentSession;
+        console.log(
+          `🔗 Associated frontend with session for job config: ${
+            session.streamSid || session.id
+          }`
+        );
+      }
+    }
+
+    // Strategy 2: Find any active session without a frontend connection
+    if (!session) {
+      const activeSession = Array.from(sessions.values()).find(
+        (s) => s.twilioConn && isOpen(s.twilioConn) && !s.frontendConn
+      );
+
+      if (activeSession) {
+        activeSession.frontendConn = ws;
+        waitingFrontendConnections.delete(ws);
+        session = activeSession;
+        console.log(
+          `🔗 Late-associated frontend with active session: ${
+            activeSession.streamSid || activeSession.id
+          }`
+        );
+      }
+    }
+
+    // Strategy 3: Create waiting connection for future association
+    if (!session) {
+      console.log(
+        "📝 Adding frontend to waiting connections for future association"
+      );
+      waitingFrontendConnections.add(ws);
+      return; // Wait for a call session to be created
+    }
+  }
+
+  if (!session) {
+    console.log(
+      "❌ Frontend message received but no session could be found or created"
+    );
+    return;
+  }
+
+  console.log(
+    `📨 Processing frontend message for session: ${
+      session.streamSid || session.id
+    }`
+  );
+  handleFrontendMessageForSession(msg, session);
+}
+
+function handleFrontendMessageForSession(msg: any, session: Session) {
+  // Handle job configuration
+  if (msg.type === "job.configuration") {
+    console.log(
+      `📋 Received job configuration for session ${
+        session.streamSid || session.id
+      }:`,
+      msg
+    );
+    session.jobTitle = msg.jobTitle;
+    session.company = msg.company;
+    session.jobDescription = msg.jobDescription;
+    session.voice = msg.voice;
+    return;
+  }
 
   if (isOpen(session.modelConn)) {
     jsonSend(session.modelConn, msg);
@@ -251,26 +421,66 @@ function tryConnectModel(sessionKey: string) {
     );
     const config = session.saved_config || {};
 
-    // Configure the AI as a phone interview assistant
-    const interviewInstructions = `You are a professional AI phone interviewer conducting a technical phone screening. Your role is to:
-    
-    1. Start the conversation immediately with a warm, professional greeting
-    2. Introduce yourself as the AI interviewer for the position
-    3. Ask relevant technical and behavioral interview questions
-    4. Listen carefully to responses and ask appropriate follow-up questions
-    5. Keep the conversation focused on the interview
-    6. Be encouraging but professional
-    7. The interview should last 10-15 minutes
-    
-    Begin by greeting the candidate and introducing the purpose of the call. Ask them if they're ready to start the interview, then proceed with your questions.`;
+    // Generate dynamic interview instructions based on job configuration
+    const generateInterviewInstructions = () => {
+      const jobTitle = session.jobTitle || "this position";
+      const company = session.company || "the company";
+      const jobDescription = session.jobDescription || "";
+
+      let baseInstructions = dedent`
+        You are a professional AI phone interviewer conducting a technical phone screening. You are interviewing a candidate for the role of ${jobTitle} at ${company}.
+
+        Your role is to:
+        1. Start with a warm, professional greeting and introduce yourself as the AI interviewer
+        2. Briefly explain that this is a phone screening for the ${jobTitle} position at ${company}
+        3. Ask if they're ready to begin and if they have any questions before starting
+        4. Conduct a comprehensive interview covering:
+           - Background and experience relevant to the role
+           - Technical skills and knowledge
+           - Problem-solving abilities
+           - Cultural fit and motivation
+           - Questions about their interest in ${company}
+        5. Ask thoughtful follow-up questions based on their responses
+        6. Keep the conversation focused and professional
+        7. The interview should last 10-15 minutes
+        8. Be encouraging but thorough in your evaluation
+
+        Interview Guidelines:
+        - Ask open-ended questions that allow the candidate to demonstrate their expertise
+        - Listen carefully and ask relevant follow-up questions
+        - Maintain a professional but friendly tone
+        - Cover both technical and behavioral aspects
+        - End with asking if they have any questions for you
+      `;
+
+      // Add specific job description context if available
+      if (jobDescription.trim()) {
+        baseInstructions += dedent`
+
+          Job Context:
+          ${jobDescription.trim()}
+
+          Use this job description to tailor your questions to the specific requirements and responsibilities mentioned.
+        `;
+      }
+
+      baseInstructions += dedent`
+
+        Begin by greeting the candidate and introducing the purpose of the call. Ask them if they're ready to start the interview, then proceed with your questions. Make this feel like a real, professional interview experience.
+      `;
+
+      return baseInstructions;
+    };
+
+    const interviewInstructions = generateInterviewInstructions();
 
     jsonSend(session.modelConn, {
       type: "session.update",
       session: {
         modalities: ["text", "audio"],
         turn_detection: { type: "server_vad" },
-        voice: "ash",
-        input_audio_transcription: { model: "whisper-1" },
+        voice: session.voice || "ash",
+        input_audio_transcription: { model: "gpt-4o-mini-transcribe" },
         input_audio_format: "g711_ulaw",
         output_audio_format: "g711_ulaw",
         instructions: interviewInstructions,
