@@ -33,22 +33,33 @@ const CallInterface = () => {
   // Connect to websocket when call is connected
   useEffect(() => {
     if (callStatus === "connected" && !ws) {
-      // Use ngrok URL if available, otherwise fall back to localhost
       const websocketServerUrl = process.env.NEXT_PUBLIC_WEBSOCKET_SERVER_URL;
 
       let websocketUrl: string;
 
       if (websocketServerUrl) {
-        // Convert https://ngrok-url to wss://ngrok-url for WebSocket connection
+        // Convert https://server-url to wss://server-url for WebSocket connection
         const protocol = websocketServerUrl.startsWith("https:")
           ? "wss:"
           : "ws:";
         const host = websocketServerUrl.replace(/^https?:\/\//, "");
         websocketUrl = `${protocol}//${host}/logs`;
       } else {
-        // Fallback to localhost for development without ngrok
-        const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-        websocketUrl = `${protocol}//localhost:8081/logs`;
+        // Check if we're in development (localhost)
+        const isDevelopment = typeof window !== 'undefined' && 
+          (window.location.hostname === 'localhost' || 
+           window.location.hostname === '127.0.0.1');
+        
+        if (isDevelopment) {
+          // Development: Use localhost
+          const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+          websocketUrl = `${protocol}//localhost:8081/logs`;
+        } else {
+          // Production but no NEXT_PUBLIC_WEBSOCKET_SERVER_URL set - this is an error
+          console.error("NEXT_PUBLIC_WEBSOCKET_SERVER_URL environment variable is required in production");
+          console.error("Please set NEXT_PUBLIC_WEBSOCKET_SERVER_URL to your WebSocket server URL (e.g., https://websocket-server-red-resonance-1640.fly.dev)");
+          return;
+        }
       }
 
       console.log("Connecting to logs websocket:", websocketUrl);
