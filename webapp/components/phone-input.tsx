@@ -8,6 +8,7 @@ import { Phone, PhoneCall, PhoneOff, Loader2 } from "lucide-react";
 import { isValidPhoneNumber } from "@/lib/phone-utils-client";
 import PhoneInput, { Country } from "react-phone-number-input";
 import "react-phone-number-input/style.css";
+import { SUPPORTED_COUNTRIES, isFromSupportedRegion } from "@/lib/regions";
 
 interface PhoneInputProps {
   onStartCall: (phoneNumber: string) => void;
@@ -59,6 +60,7 @@ export default function PhoneInputComponent({
   };
 
   const isValidPhone = isValidPhoneNumber(phoneNumber);
+  const isSupportedRegion = isFromSupportedRegion(phoneNumber);
 
   return (
     <Card className="w-full max-w-md mx-auto">
@@ -80,12 +82,13 @@ export default function PhoneInputComponent({
                 <PhoneInput
                   international
                   countryCallingCodeEditable={false}
+                  countries={SUPPORTED_COUNTRIES}
                   defaultCountry={country}
                   value={phoneNumber}
                   onChange={(value) => setPhoneNumber(value || "")}
                   onCountryChange={(country) => setCountry(country || "US")}
                   className={`flex h-10 w-full rounded-md border px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 ${
-                    isValidPhone
+                    isValidPhone && isSupportedRegion
                       ? "border-green-500"
                       : phoneNumber
                       ? "border-red-500"
@@ -94,19 +97,18 @@ export default function PhoneInputComponent({
                   placeholder="Enter phone number"
                 />
               </div>
-              {phoneNumber && !isValidPhone && (
+              {phoneNumber && (!isValidPhone || !isSupportedRegion) && (
                 <p className="text-sm text-red-600">
-                  Please enter a valid phone number
+                  {!isValidPhone 
+                    ? "Please enter a valid phone number"
+                    : "We currently only support calls to the US, Australia, and India"
+                  }
                 </p>
               )}
-              <p className="text-xs text-gray-500">
-                Supports international numbers. Australian mobile: +61 4xx xxx
-                xxx
-              </p>
             </div>
             <Button
               onClick={handleStartCall}
-              disabled={!isValidPhone}
+              disabled={!isValidPhone || !isSupportedRegion}
               className="w-full"
               size="lg"
             >

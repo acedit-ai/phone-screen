@@ -165,7 +165,7 @@ function tryConnectModel() {
         modalities: ["text", "audio"],
         turn_detection: { type: "server_vad" },
         voice: "ash",
-        input_audio_transcription: { model: "gpt-4o-mini-transcribe" },
+        input_audio_transcription: { model: "whisper-1" },
         input_audio_format: "g711_ulaw",
         output_audio_format: "g711_ulaw",
         instructions: interviewInstructions,

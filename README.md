@@ -4,7 +4,32 @@
 
 An open-source project to simulate job interview phone screens using OpenAI's Realtime API and Twilio. Practice your interviewing skills with an AI that calls you!
 
-<img width="1728" alt="Screenshot 2024-12-18 at 4 59 30 PM" src="https://github.com/user-attachments/assets/d3c8dcce-b339-410c-85ca-864a8e0fc326" />
+<img width="1728" alt="Screenshot 2024-12-18 at 4 59 30 PM" src="https://github.com/user-attachments/assets/d3c8dcce-b339-410c-85ca-864a8e0fc326" />
+
+## Supported Regions
+
+This application currently supports outbound calls to three regions:
+
+| Region | Flag | Country Code | Example |
+|--------|------|--------------|---------|
+| United States | 🇺🇸 | +1 | +1 (555) 123-4567 |
+| Australia | 🇦🇺 | +61 | +61 4XX XXX XXX |
+| India | 🇮🇳 | +91 | +91 XXXXX XXXXX |
+
+### Why Regional Phone Numbers?
+
+**Using local phone numbers for each region dramatically improves call success rates:**
+
+✅ **Higher Connection Rates**: Local numbers are less likely to be blocked by carriers  
+✅ **No International Restrictions**: Bypasses carrier limitations on international calls  
+✅ **Better Trust**: Recipients are more likely to answer calls from local numbers  
+✅ **Reduced Costs**: Local rates instead of international calling fees  
+✅ **Compliance**: Meets regional telecommunications regulations  
+
+**Without regional numbers**, you may experience:
+- Calls going straight to voicemail
+- Carrier blocking international calls
+- Higher costs and lower success rates
 
 ## Quick Setup
 
@@ -59,8 +84,10 @@ Setup
 Call
 
 1. User enters their phone number in the webapp and clicks "Start Interview"
+1. Webapp validates the phone number is from a supported region (US, AU, IN)
+1. System selects the appropriate regional Twilio phone number for the call
 1. Webapp makes an API call to initiate an outbound call via Twilio
-1. Twilio calls the user's number and queries the webhook (`http://[your_backend]/twiml`) for TwiML instructions
+1. Twilio calls the user's number using the local regional number and queries the webhook (`http://[your_backend]/twiml`) for TwiML instructions
 1. Twilio opens a bi-directional stream to the backend (`wss://[your_backend]/call`)
 1. The backend connects to the Realtime API, and starts forwarding messages:
    - between Twilio and the Realtime API
@@ -74,24 +101,26 @@ This demo mocks out function calls so you can provide sample responses. In reali
 
 1. Make sure your [auth & env](#detailed-auth--env) is configured correctly.
 
-2. **Set up ngrok and get your public URL:**
+2. **Purchase Regional Phone Numbers in Twilio** (see [Regional Setup](#regional-phone-number-setup))
+
+3. **Set up ngrok and get your public URL:**
    ```shell
    ngrok http 8081
    ```
    Copy the `Forwarding` URL (e.g., `https://abc123.ngrok-free.app`)
 
-3. **Configure environment variables:**
+4. **Configure environment variables:**
    - In `websocket-server/.env`, set `PUBLIC_URL=https://abc123.ngrok-free.app`
    - In `webapp/.env`, set `NEXT_PUBLIC_WEBSOCKET_SERVER_URL=https://abc123.ngrok-free.app`
    
-4. Run websocket server:
+5. Run websocket server:
    ```shell
    cd websocket-server
    npm install
    npm run dev
    ```
 
-5. Run webapp:
+6. Run webapp:
    ```shell
    cd webapp
    npm install
@@ -99,6 +128,92 @@ This demo mocks out function calls so you can provide sample responses. In reali
    ```
 
 **🔥 Pro tip:** Keep ngrok running throughout your development session. If you restart ngrok, you'll get a new URL and need to update both environment files!
+
+## Regional Phone Number Setup
+
+### Why You Need Regional Numbers
+
+The application requires **local phone numbers for each supported region** to ensure reliable call delivery:
+
+- **US calls**: Require a US Twilio phone number
+- **Australian calls**: Require an Australian Twilio phone number  
+- **Indian calls**: Require an Indian Twilio phone number
+
+### Purchasing Regional Numbers
+
+1. **Log into Twilio Console**: https://console.twilio.com/us1/develop/phone-numbers/manage/search
+
+2. **For Australia (+61)**:
+   - Select "Australia" from country dropdown
+   - Choose "Voice" capability
+   - Purchase a local Australian number
+   - Cost: ~$1-3/month
+
+3. **For India (+91)**:
+   - Select "India" from country dropdown
+   - Choose "Voice" capability
+   - Purchase a local Indian number
+   - **Note**: May require identity verification documents
+   - Cost: ~$1-3/month
+
+4. **For United States (+1)**:
+   - You may already have this from initial Twilio setup
+   - If not, purchase any US number with Voice capability
+
+### Configuration
+
+After purchasing, add the phone numbers to your environment variables:
+
+```env
+# Regional Phone Numbers (E.164 format with + prefix)
+TWILIO_PHONE_NUMBER_US=+1XXXXXXXXXX   # US number (required - used as fallback)
+TWILIO_PHONE_NUMBER_AU=+61XXXXXXXXX   # Australian number (optional)
+TWILIO_PHONE_NUMBER_IN=+91XXXXXXXXXX  # Indian number (optional)
+```
+
+### Fallback Mechanism
+
+**Smart Fallback System**: If a regional phone number is not configured, the system automatically uses the US number as a fallback:
+
+- **US calls**: Always use the configured US number
+- **Australian calls**: Use AU number if configured, otherwise fallback to US number
+- **Indian calls**: Use IN number if configured, otherwise fallback to US number
+
+**Benefits:**
+- ✅ **Always functional**: Calls work even without regional numbers
+- ✅ **Gradual rollout**: Start with US number, add regional numbers over time  
+- ✅ **Cost control**: Only buy regional numbers when needed
+- ✅ **Graceful degradation**: International calls still work (may have lower success rates)
+
+**Example scenarios:**
+```bash
+# Scenario 1: Only US number configured
+TWILIO_PHONE_NUMBER_US=+1234567890
+# Result: All regions use +1234567890
+
+# Scenario 2: US + Australian numbers configured  
+TWILIO_PHONE_NUMBER_US=+1234567890
+TWILIO_PHONE_NUMBER_AU=+61987654321
+# Result: US uses +1234567890, AU uses +61987654321, IN uses +1234567890 (fallback)
+
+# Scenario 3: All regional numbers configured
+TWILIO_PHONE_NUMBER_US=+1234567890
+TWILIO_PHONE_NUMBER_AU=+61987654321  
+TWILIO_PHONE_NUMBER_IN=+91123456789
+# Result: Each region uses its local number
+```
+
+### Region Validation
+
+The application automatically:
+- **Detects the user's region** from their phone number
+- **Selects the appropriate local number** for the outbound call
+- **Blocks unsupported regions** with helpful error messages
+
+**Supported Detection Logic:**
+- **US**: Numbers starting with +1 (11 digits total)
+- **Australia**: Numbers starting with +61 (10+ digits total)
+- **India**: Numbers starting with +91 (12+ digits total)
 
 ## Detailed Auth & Env
 
@@ -111,7 +226,11 @@ The `webapp` requires the following environment variables in `webapp/.env`:
 # Twilio Configuration (for outbound calling)
 TWILIO_ACCOUNT_SID=your_twilio_account_sid
 TWILIO_AUTH_TOKEN=your_twilio_auth_token
-TWILIO_PHONE_NUMBER=+18058660137
+
+# Regional Phone Numbers (E.164 format)
+TWILIO_PHONE_NUMBER_US=+1XXXXXXXXXX
+TWILIO_PHONE_NUMBER_AU=+61XXXXXXXXX  # Optional: Leave empty if not supporting AU
+TWILIO_PHONE_NUMBER_IN=+91XXXXXXXXXX # Optional: Leave empty if not supporting IN
 
 # WebSocket Server URL - Use your ngrok URL for local development
 NEXT_PUBLIC_WEBSOCKET_SERVER_URL=https://your-unique-id.ngrok-free.app
@@ -122,14 +241,19 @@ NEXT_PUBLIC_WEBSOCKET_SERVER_URL=https://your-unique-id.ngrok-free.app
 # Twilio Configuration (for outbound calling)
 TWILIO_ACCOUNT_SID=your_twilio_account_sid
 TWILIO_AUTH_TOKEN=your_twilio_auth_token
-TWILIO_PHONE_NUMBER=+18058660137
+
+# Regional Phone Numbers (E.164 format)
+TWILIO_PHONE_NUMBER_US=+1XXXXXXXXXX
+TWILIO_PHONE_NUMBER_AU=+61XXXXXXXXX
+TWILIO_PHONE_NUMBER_IN=+91XXXXXXXXXX
 
 # WebSocket Server URL - Use your deployed server URL
 NEXT_PUBLIC_WEBSOCKET_SERVER_URL=https://your-websocket-server.fly.dev
 ```
 
 **Important Notes:**
-- `TWILIO_PHONE_NUMBER` must include the `+` sign and country code (E.164 format)
+- All phone numbers must be in **E.164 format** (include the `+` sign and country code)
+- If a regional number is not configured, users from that region will see an error
 - For local development, `NEXT_PUBLIC_WEBSOCKET_SERVER_URL` must use the **ngrok HTTPS URL** (not `ws://localhost:8081`) so the webapp can generate TwiML that Twilio can reach
 - The webapp uses this URL to generate the correct websocket endpoints for Twilio's TwiML
 
