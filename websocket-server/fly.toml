@@ -1,0 +1,26 @@
+# fly.toml app configuration file.
+# IMPORTANT: This file serves as a template or example.
+# When you run `fly launch` for the first time (as per the README.md instructions),
+# Fly.io will likely generate a new `fly.toml` tailored to your specific app 
+# and the settings you choose, potentially replacing this one.
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
+app = 'websocket-server-red-resonance-1640'
+primary_region = 'syd'
+
+[build]
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+  auto_stop_machines = 'stop'
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ['app']
+
+[[vm]]
+  memory = '1gb'
+  cpu_kind = 'shared'
+  cpus = 1
