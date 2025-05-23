@@ -1,32 +1,67 @@
 import React from "react";
 import { Button } from "@/components/ui/button";
-import { BookOpen, FileText } from "lucide-react";
+import {
+  BookOpen,
+  Briefcase,
+  ExternalLink,
+  Zap,
+  Star,
+  Github,
+} from "lucide-react";
 import Link from "next/link";
 
 const TopBar = () => {
   return (
-    <div className="flex justify-between items-center px-6 py-4 border-b">
+    <div className="flex justify-between items-center px-6 py-4 border-b bg-gradient-to-r from-purple-50 to-indigo-50">
       <div className="flex items-center gap-4">
-        <svg
-          id="openai-symbol"
-          xmlns="http://www.w3.org/2000/svg"
-          viewBox="0 0 32 32"
-          className="w-8 h-8"
-        >
-          <path d="M29.71,13.09A8.09,8.09,0,0,0,20.34,2.68a8.08,8.08,0,0,0-13.7,2.9A8.08,8.08,0,0,0,2.3,18.9,8,8,0,0,0,3,25.45a8.08,8.08,0,0,0,8.69,3.87,8,8,0,0,0,6,2.68,8.09,8.09,0,0,0,7.7-5.61,8,8,0,0,0,5.33-3.86A8.09,8.09,0,0,0,29.71,13.09Zm-12,16.82a6,6,0,0,1-3.84-1.39l.19-.11,6.37-3.68a1,1,0,0,0,.53-.91v-9l2.69,1.56a.08.08,0,0,1,.05.07v7.44A6,6,0,0,1,17.68,29.91ZM4.8,24.41a6,6,0,0,1-.71-4l.19.11,6.37,3.68a1,1,0,0,0,1,0l7.79-4.49V22.8a.09.09,0,0,1,0,.08L13,26.6A6,6,0,0,1,4.8,24.41ZM3.12,10.53A6,6,0,0,1,6.28,7.9v7.57a1,1,0,0,0,.51.9l7.75,4.47L11.85,22.4a.14.14,0,0,1-.09,0L5.32,18.68a6,6,0,0,1-2.2-8.18Zm22.13,5.14-7.78-4.52L20.16,9.6a.08.08,0,0,1,.09,0l6.44,3.72a6,6,0,0,1-.9,10.81V16.56A1.06,1.06,0,0,0,25.25,15.67Zm2.68-4-.19-.12-6.36-3.7a1,1,0,0,0-1.05,0l-7.78,4.49V9.2a.09.09,0,0,1,0-.09L19,5.4a6,6,0,0,1,8.91,6.21ZM11.08,17.15,8.38,15.6a.14.14,0,0,1-.05-.08V8.1a6,6,0,0,1,9.84-4.61L18,3.6,11.61,7.28a1,1,0,0,0-.53.91ZM12.54,14,16,12l3.47,2v4L16,20l-3.47-2Z" />
-        </svg>
-        <h1 className="text-xl font-semibold">OpenAI Call Assistant</h1>
-      </div>
-      <div className="flex gap-3">
-        <Button variant="ghost" size="sm">
+        <div className="flex items-center justify-center w-10 h-10 bg-gradient-to-r from-purple-600 to-indigo-600 rounded-lg">
+          <Briefcase className="w-6 h-6 text-white" />
+        </div>
+        <div className="flex items-end justify-between w-full min-w-0">
+          <div>
+            <h1 className="text-xl font-bold text-gray-900">
+              AI Interview Practice
+            </h1>
+            <p className="text-sm text-gray-600">
+              Practice phone interviews with AI
+            </p>
+          </div>
           <Link
-            href="https://platform.openai.com/docs/guides/realtime"
-            className="flex items-center gap-2"
+            href="https://github.com/acedit-ai/phone-screen"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 ml-4 px-2.5 py-1 bg-gray-900 hover:bg-gray-800 rounded-md text-xs text-white hover:text-gray-100 transition-colors duration-200 border border-gray-700 flex-shrink-0"
+          >
+            <Github className="w-3 h-3" />
+            <span>Open Source</span>
+            <div className="w-px h-3 bg-gray-600 mx-0.5"></div>
+            <Star className="w-3 h-3 text-purple-400" />
+            <span>0</span>
+          </Link>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-3">
+        <div className="hidden sm:flex flex-col items-end">
+          <p className="text-xs text-gray-500">
+            Ready for real video interviews?
+          </p>
+          <p className="text-xs font-medium text-purple-600">
+            Get real-time AI coaching
+          </p>
+        </div>
+        <Button
+          asChild
+          className="bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800 text-white font-semibold px-6 py-2 shadow-lg hover:shadow-xl transition-all duration-200"
+        >
+          <Link
+            href="https://www.acedit.ai/"
             target="_blank"
             rel="noopener noreferrer"
           >
-            <BookOpen className="w-4 h-4" />
-            Documentation
+            <Zap className="w-4 h-4 mr-2" />
+            Get Acedit
+            <ExternalLink className="w-3 h-3 ml-2" />
           </Link>
         </Button>
       </div>

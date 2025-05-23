@@ -13,9 +13,11 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@types/dedent": "^0.7.2",
     "@types/node": "^22.0.0",
     "@types/ws": "^8.5.12",
     "cors": "^2.8.5",
+    "dedent": "^1.6.0",
     "dotenv": "^16.4.5",
     "express": "^4.21.2",
     "httpdispatcher": "^2.2.0",
