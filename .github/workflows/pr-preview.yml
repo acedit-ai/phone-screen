@@ -1,0 +1,19 @@
+name: PR Preview
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+
+jobs:
+  deploy-preview:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Deploy Preview App
+        uses: superfly/fly-pr-review-apps@1.0.0
+        with:
+          name: pr-${{ github.event.number }}-${{ github.repository }}
+          org: personal
+          region: syd
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }} 

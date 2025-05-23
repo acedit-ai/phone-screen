@@ -1,6 +1,8 @@
-# OpenAI Realtime API with Twilio Quickstart
+# AI Phone Screen Practice
 
-Combine OpenAI's Realtime API and Twilio's phone calling capability to build an AI calling assistant.
+[![CodeRabbit Pull Request Reviews](https://img.shields.io/coderabbit/prs/github/acedit-ai/phone-screen?utm_source=oss&utm_medium=github&utm_campaign=acedit-ai%2Fphone-screen&labelColor=171717&color=FF570A&link=https%3A%2F%2Fcoderabbit.ai&label=CodeRabbit+Reviews)](https://coderabbit.ai/github/acedit-ai/phone-screen)
+
+An open-source project to simulate job interview phone screens using OpenAI's Realtime API and Twilio. Practice your interviewing skills with an AI!
 
 <img width="1728" alt="Screenshot 2024-12-18 at 4 59 30 PM" src="https://github.com/user-attachments/assets/d3c8dcce-b339-410c-85ca-864a8e0fc326" />
 
@@ -103,6 +105,56 @@ Make note of the `Forwarding` URL. (e.g. `https://54c5-35-170-32-42.ngrok-free.a
 ### Websocket URL
 
 Your server should now be accessible at the `Forwarding` URL when run, so set the `PUBLIC_URL` in `websocket-server/.env`. See `websocket-server/.env.example` for reference.
+
+## Deployment with Fly.io
+
+This project is configured for deployment to Fly.io using GitHub Actions. Pushes to the `main` branch will automatically deploy the `websocket-server` to Fly.io, and Pull Requests will generate preview environments.
+
+To get started with Fly.io:
+
+1.  **Install the Fly CLI and Authenticate:**
+    *   Install the CLI:
+        ```shell
+        curl -L https://fly.io/install.sh | sh
+        ```
+    *   Sign up or log in:
+        ```shell
+        fly auth signup  # If you don't have an account
+        # OR
+        fly auth login   # If you already have an account
+        ```
+
+2.  **Initialize Your App with Fly.io:**
+    *   Navigate to the `websocket-server` directory in your project:
+        ```shell
+        cd websocket-server
+        ```
+    *   Launch the app on Fly.io:
+        ```shell
+        fly launch
+        ```
+        Follow the prompts. This will detect your Node.js application, ask you to choose an organization and a region. It will also generate a `fly.toml` configuration file and a `Dockerfile` in the `websocket-server` directory. Review these files to ensure they meet your needs.
+        *Note: For the hobby plan, ensure you select a region and instance size that aligns with the free tier or your budget.*
+
+3.  **Set Up GitHub Actions for Automatic Deployment:**
+    The necessary GitHub Actions workflow files (`.github/workflows/deploy.yml` and `.github/workflows/pr-preview.yml`) are already included in this repository. To enable them:
+    *   **Generate a Fly.io API Token:**
+        ```shell
+        flyctl auth token
+        ```
+        Copy the displayed token.
+    *   **Store the Token in GitHub Secrets:**
+        1.  Go to your GitHub repository's page.
+        2.  Click on "Settings".
+        3.  In the left sidebar, navigate to "Secrets and variables" > "Actions".
+        4.  Click the "New repository secret" button.
+        5.  Name the secret `FLY_API_TOKEN`.
+        6.  Paste the token value you copied into the "Secret" field.
+        7.  Click "Add secret".
+
+Once these steps are completed, any push to the `main` branch will trigger a deployment of the `websocket-server` to Fly.io. Pull requests will also automatically create preview environments.
+
+You can manage your Fly.io applications and view logs via the `flyctl` command-line tool or the [Fly.io dashboard](https://fly.io/dashboard).
 
 # Additional Notes
 
