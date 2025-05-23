@@ -153,15 +153,10 @@ const CallInterface = () => {
 
       setCurrentCallSid(null);
 
-      // Reset to idle after a delay to show "ended" status briefly
-      const resetTimer = setTimeout(() => {
-        setCallStatus("idle");
-        setItems([]);
-      }, 2000);
-
-      return () => clearTimeout(resetTimer);
+      // No automatic reset - let user decide when to start a new session
+      // The "Practice Again" button and other interactions will handle state reset
     }
-  }, [callStatus, ws]);
+  }, [callStatus]); // Removed automatic timer - screen stays until user action
 
   const handleStartCall = async (phoneNumber: string) => {
     try {
@@ -225,11 +220,7 @@ const CallInterface = () => {
         setCallStatus("ended");
         setCurrentCallSid(null);
 
-        // Reset after a delay
-        setTimeout(() => {
-          setCallStatus("idle");
-          setItems([]);
-        }, 2000);
+        // Remove duplicate timer - useEffect handles the reset
       } catch (error) {
         console.error("Error ending call:", error);
       }
@@ -365,7 +356,7 @@ const CallInterface = () => {
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
                   <div className="flex flex-col items-center space-y-2 p-4 bg-white rounded-lg">
                     <div className="text-2xl font-bold text-purple-600">
-                      3,500+
+                      3,800+
                     </div>
                     <div className="text-gray-600">Candidates Helped</div>
                   </div>
