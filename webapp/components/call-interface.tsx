@@ -33,22 +33,33 @@ const CallInterface = () => {
   // Connect to websocket when call is connected
   useEffect(() => {
     if (callStatus === "connected" && !ws) {
-      // Use ngrok URL if available, otherwise fall back to localhost
       const websocketServerUrl = process.env.NEXT_PUBLIC_WEBSOCKET_SERVER_URL;
 
       let websocketUrl: string;
 
       if (websocketServerUrl) {
-        // Convert https://ngrok-url to wss://ngrok-url for WebSocket connection
+        // Convert https://server-url to wss://server-url for WebSocket connection
         const protocol = websocketServerUrl.startsWith("https:")
           ? "wss:"
           : "ws:";
         const host = websocketServerUrl.replace(/^https?:\/\//, "");
         websocketUrl = `${protocol}//${host}/logs`;
       } else {
-        // Fallback to localhost for development without ngrok
-        const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-        websocketUrl = `${protocol}//localhost:8081/logs`;
+        // Check if we're in development (localhost)
+        const isDevelopment = typeof window !== 'undefined' && 
+          (window.location.hostname === 'localhost' || 
+           window.location.hostname === '127.0.0.1');
+        
+        if (isDevelopment) {
+          // Development: Use localhost
+          const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+          websocketUrl = `${protocol}//localhost:8081/logs`;
+        } else {
+          // Production but no NEXT_PUBLIC_WEBSOCKET_SERVER_URL set - this is an error
+          console.error("NEXT_PUBLIC_WEBSOCKET_SERVER_URL environment variable is required in production");
+          console.error("Please set NEXT_PUBLIC_WEBSOCKET_SERVER_URL to your WebSocket server URL (e.g., https://websocket-server-red-resonance-1640.fly.dev)");
+          return;
+        }
       }
 
       console.log("Connecting to logs websocket:", websocketUrl);
@@ -416,11 +427,15 @@ const CallInterface = () => {
           <h2 className="text-3xl font-bold text-gray-900">
             Practice Phone Interviews with AI
           </h2>
-          <p className="text-lg text-gray-600 max-w-2xl mx-auto">
-            Get started with this free AI practice tool. Ready for more? 
-            <a href="https://www.acedit.ai/" target="_blank" rel="noopener noreferrer" className="text-purple-600 hover:text-purple-700 font-semibold underline">Acedit</a> offers 
-            advanced mock interviews that simulate real job scenarios, plus real-time AI coaching during your actual video interviews.
-          </p>
+          <div className="text-lg text-gray-600 max-w-2xl mx-auto">
+            <p className="mb-2">
+              Get started with this free AI practice tool.
+            </p>
+            <p>
+              Ready for more? <a href="https://www.acedit.ai/" target="_blank" rel="noopener noreferrer" className="text-purple-600 hover:text-purple-700 font-semibold underline decoration-2 underline-offset-2">Acedit</a> offers 
+              advanced mock interviews that simulate real job scenarios, plus real-time AI coaching during your actual video interviews.
+            </p>
+          </div>
         </div>
 
         {/* Responsive grid layout: stacked on mobile, side-by-side on large screens */}
@@ -490,29 +505,30 @@ const CallInterface = () => {
       {/* Footer CTA - only show on main page, not during calls */}
       {(callStatus === "idle" || callStatus === "ended") && (
         <footer className="border-t bg-white">
-          <div className="max-w-6xl mx-auto px-6 py-12">
-            <div className="text-center space-y-6">
+          <div className="max-w-6xl mx-auto px-4 sm:px-6 py-8 sm:py-12">
+            <div className="text-center space-y-4 sm:space-y-6">
               <div className="space-y-2">
-                <h3 className="text-2xl font-bold text-gray-900">
+                <h3 className="text-xl sm:text-2xl font-bold text-gray-900">
                   Ready for Advanced Mock Interviews & Real Interview Success?
                 </h3>
-                <p className="text-gray-600 max-w-3xl mx-auto">
+                <p className="text-sm sm:text-base text-gray-600 max-w-3xl mx-auto">
                   This basic phone practice is just the beginning. Acedit provides advanced mock interviews with 
                   personalized response recommendations, plus real-time AI coaching during actual interviews. 
-                  Join 3,800+ candidates who landed jobs!
+                  <span className="hidden sm:inline"> Join 3,800+ candidates who landed jobs!</span>
                 </p>
               </div>
 
-              <div className="flex justify-center gap-8 text-sm text-gray-500">
-                <div className="flex items-center gap-2">
+              {/* Mobile: Simple vertical list, Desktop: Horizontal list */}
+              <div className="flex flex-col sm:flex-row justify-center gap-2 sm:gap-8 text-xs sm:text-sm text-gray-500">
+                <div className="flex items-center justify-center gap-2">
                   <div className="w-2 h-2 bg-purple-500 rounded-full"></div>
                   <span>Advanced mock interviews</span>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center justify-center gap-2">
                   <div className="w-2 h-2 bg-purple-500 rounded-full"></div>
                   <span>Personalized response suggestions</span>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center justify-center gap-2">
                   <div className="w-2 h-2 bg-purple-500 rounded-full"></div>
                   <span>Real-time interview coaching</span>
                 </div>
@@ -521,16 +537,16 @@ const CallInterface = () => {
               <Button
                 asChild
                 size="lg"
-                className="bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800 text-white font-semibold px-8 py-3 text-lg shadow-lg hover:shadow-xl transition-all duration-200"
+                className="bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800 text-white font-semibold px-6 sm:px-8 py-3 text-base sm:text-lg shadow-lg hover:shadow-xl transition-all duration-200 w-full sm:w-auto"
               >
                 <Link
                   href="https://www.acedit.ai/"
                   target="_blank"
                   rel="noopener noreferrer"
                 >
-                  <Zap className="w-5 h-5 mr-2" />
+                  <Zap className="w-4 sm:w-5 h-4 sm:h-5 mr-2" />
                   Get Acedit
-                  <ExternalLink className="w-4 h-4 ml-2" />
+                  <ExternalLink className="w-3 sm:w-4 h-3 sm:h-4 ml-2" />
                 </Link>
               </Button>
 
