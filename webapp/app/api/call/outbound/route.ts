@@ -11,10 +11,10 @@ interface ServerRegion extends Region {
   phoneNumber: string;
 }
 
+// Get the US number as fallback
+const fallbackNumber = process.env.TWILIO_PHONE_NUMBER_US || '';
+
 function getServerRegions(): ServerRegion[] {
-  // Get the US number as fallback
-  const fallbackNumber = process.env.TWILIO_PHONE_NUMBER_US || '';
-  
   return SUPPORTED_REGIONS.map(region => {
     let phoneNumber = '';
     
@@ -52,7 +52,6 @@ function getCallFromNumber(toPhoneNumber: string): string {
   }
   
   // Check if we're using fallback (US number for non-US regions)
-  const fallbackNumber = process.env.TWILIO_PHONE_NUMBER_US || '';
   const isUsingFallback = region.code !== 'US' && serverRegion.phoneNumber === fallbackNumber;
   
   if (isUsingFallback) {

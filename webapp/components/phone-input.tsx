@@ -146,9 +146,6 @@ export default function PhoneInputComponent({
             )}
           </div>
         )}
-        <div className={`text-center text-sm ${getStatusColor()}`}>
-          {getStatusText()}
-        </div>
       </CardContent>
     </Card>
   );
