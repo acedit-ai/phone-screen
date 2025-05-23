@@ -10,7 +10,7 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - name: Deploy Preview App
-        uses: superfly/fly-pr-review-apps@1.0.0
+        uses: superfly/fly-pr-review-apps@v1
         with:
           name: pr-${{ github.event.number }}-${{ github.repository_owner }}-${{ github.event.repository.name }}
           path: ./websocket-server
