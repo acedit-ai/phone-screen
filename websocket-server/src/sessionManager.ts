@@ -16,13 +16,18 @@ interface Session {
 let session: Session = {};
 
 export function handleCallConnection(ws: WebSocket, openAIApiKey: string) {
+  console.log("🎤 Setting up call connection with OpenAI Realtime API");
   cleanupConnection(session.twilioConn);
   session.twilioConn = ws;
   session.openAIApiKey = openAIApiKey;
 
   ws.on("message", handleTwilioMessage);
-  ws.on("error", ws.close);
+  ws.on("error", (error) => {
+    console.error("❌ Call WebSocket error:", error);
+    ws.close();
+  });
   ws.on("close", () => {
+    console.log("📞 Call connection closed - cleaning up session");
     cleanupConnection(session.modelConn);
     cleanupConnection(session.twilioConn);
     session.twilioConn = undefined;
@@ -36,11 +41,13 @@ export function handleCallConnection(ws: WebSocket, openAIApiKey: string) {
 }
 
 export function handleFrontendConnection(ws: WebSocket) {
+  console.log("🖥️  Setting up frontend connection for logs");
   cleanupConnection(session.frontendConn);
   session.frontendConn = ws;
 
   ws.on("message", handleFrontendMessage);
   ws.on("close", () => {
+    console.log("🖥️  Frontend connection closed");
     cleanupConnection(session.frontendConn);
     session.frontendConn = undefined;
     if (!session.twilioConn && !session.modelConn) session = {};
@@ -81,6 +88,7 @@ function handleTwilioMessage(data: RawData) {
 
   switch (msg.event) {
     case "start":
+      console.log("🎬 Call stream started:", msg.start.streamSid);
       session.streamSid = msg.start.streamSid;
       session.latestMediaTimestamp = 0;
       session.lastAssistantItem = undefined;
@@ -97,6 +105,7 @@ function handleTwilioMessage(data: RawData) {
       }
       break;
     case "close":
+      console.log("🎬 Call stream ended");
       closeAllConnections();
       break;
   }
@@ -116,10 +125,13 @@ function handleFrontendMessage(data: RawData) {
 }
 
 function tryConnectModel() {
-  if (!session.twilioConn || !session.streamSid || !session.openAIApiKey)
+  if (!session.twilioConn || !session.streamSid || !session.openAIApiKey) {
+    console.log("⚠️  Missing requirements for OpenAI connection");
     return;
+  }
   if (isOpen(session.modelConn)) return;
 
+  console.log("🤖 Connecting to OpenAI Realtime API...");
   session.modelConn = new WebSocket(
     "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-12-17",
     {
@@ -131,24 +143,67 @@ function tryConnectModel() {
   );
 
   session.modelConn.on("open", () => {
+    console.log("✅ Connected to OpenAI Realtime API");
     const config = session.saved_config || {};
+    
+    // Configure the AI as a phone interview assistant
+    const interviewInstructions = `You are a professional AI phone interviewer conducting a technical phone screening. Your role is to:
+    
+    1. Start the conversation immediately with a warm, professional greeting
+    2. Introduce yourself as the AI interviewer for the position
+    3. Ask relevant technical and behavioral interview questions
+    4. Listen carefully to responses and ask appropriate follow-up questions
+    5. Keep the conversation focused on the interview
+    6. Be encouraging but professional
+    7. The interview should last 10-15 minutes
+    
+    Begin by greeting the candidate and introducing the purpose of the call. Ask them if they're ready to start the interview, then proceed with your questions.`;
+    
     jsonSend(session.modelConn, {
       type: "session.update",
       session: {
         modalities: ["text", "audio"],
         turn_detection: { type: "server_vad" },
         voice: "ash",
-        input_audio_transcription: { model: "whisper-1" },
+        input_audio_transcription: { model: "gpt-4o-mini-transcribe" },
         input_audio_format: "g711_ulaw",
         output_audio_format: "g711_ulaw",
+        instructions: interviewInstructions,
         ...config,
       },
     });
+    
+    // Send an initial greeting to start the conversation
+    setTimeout(() => {
+      if (isOpen(session.modelConn)) {
+        console.log("🎤 Sending initial greeting to start interview");
+        jsonSend(session.modelConn, {
+          type: "conversation.item.create",
+          item: {
+            type: "message",
+            role: "user",
+            content: [
+              {
+                type: "input_text",
+                text: "Hello, I just answered the phone. Please start the interview."
+              }
+            ]
+          }
+        });
+        jsonSend(session.modelConn, { type: "response.create" });
+      }
+    }, 1000); // Wait 1 second after connection to ensure everything is set up
   });
 
   session.modelConn.on("message", handleModelMessage);
-  session.modelConn.on("error", closeModel);
-  session.modelConn.on("close", closeModel);
+  session.modelConn.on("error", (error) => {
+    console.error("❌ OpenAI WebSocket error:", error);
+    closeModel();
+  });
+  session.modelConn.on("close", () => {
+    console.log("🤖 OpenAI connection closed");
+    closeModel();
+  });
 }
 
 function handleModelMessage(data: RawData) {

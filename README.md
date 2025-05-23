@@ -2,7 +2,7 @@
 
 [![CodeRabbit Pull Request Reviews](https://img.shields.io/coderabbit/prs/github/acedit-ai/phone-screen?utm_source=oss&utm_medium=github&utm_campaign=acedit-ai%2Fphone-screen&labelColor=171717&color=FF570A&link=https%3A%2F%2Fcoderabbit.ai&label=CodeRabbit+Reviews)](https://coderabbit.ai/github/acedit-ai/phone-screen)
 
-An open-source project to simulate job interview phone screens using OpenAI's Realtime API and Twilio. Practice your interviewing skills with an AI!
+An open-source project to simulate job interview phone screens using OpenAI's Realtime API and Twilio. Practice your interviewing skills with an AI that calls you!
 
 <img width="1728" alt="Screenshot 2024-12-18 at 4 59 30 PM" src="https://github.com/user-attachments/assets/d3c8dcce-b339-410c-85ca-864a8e0fc326" />
 
@@ -18,26 +18,31 @@ Open three terminal windows:
 
 Make sure all vars in `webapp/.env` and `websocket-server/.env` are set correctly. See [full setup](#full-setup) section for more.
 
+**⚠️ Important:** For local development, both the `webapp` and `websocket-server` need to use the **same ngrok HTTPS URL** in their environment files!
+
 ## Overview
 
-This repo implements a phone calling assistant with the Realtime API and Twilio, and had two main parts: the `webapp`, and the `websocket-server`.
+This repo implements an AI phone interviewer using OpenAI's Realtime API and Twilio. Users enter their phone number in the webapp, and the AI calls them for a mock interview session.
 
-1. `webapp`: NextJS app to serve as a frontend for call configuration and transcripts
+The system has two main parts: the `webapp`, and the `websocket-server`.
+
+1. `webapp`: NextJS app that handles outbound calling and serves as a frontend for call configuration and transcripts
 2. `websocket-server`: Express backend that handles connection from Twilio, connects it to the Realtime API, and forwards messages to the frontend
-<img width="1514" alt="Screenshot 2024-12-20 at 10 32 40 AM" src="https://github.com/user-attachments/assets/61d39b88-4861-4b6f-bfe2-796957ab5476" />
 
-Twilio uses TwiML (a form of XML) to specify how to handle a phone call. When a call comes in we tell Twilio to start a bi-directional stream to our backend, where we forward messages between the call and the Realtime API. (`{{WS_URL}}` is replaced with our websocket endpoint.)
+<img width="1514" alt="Screenshot 2024-12-20 at 10 32 40 AM" src="https://github.com/user-attachments/assets/61d39b88-4861-4b6f-bfe2-796957ab5476" />
+
+When a user wants to start an interview, the webapp makes an outbound call via Twilio. Twilio uses TwiML (a form of XML) to specify how to handle the call, connecting it to our websocket server for real-time AI interaction.
 
 ```xml
 <!-- TwiML to start a bi-directional stream-->
 
 <?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say>Connected</Say>
+  <Say>Hello! You've connected to your AI interview practice session. Please wait a moment while we connect you to your interviewer.</Say>
   <Connect>
     <Stream url="{{WS_URL}}" />
   </Connect>
-  <Say>Disconnected</Say>
+  <Say>Thank you for using our AI interview practice. Have a great day!</Say>
 </Response>
 ```
 
@@ -53,8 +58,9 @@ Setup
 
 Call
 
-1. Call is placed to Twilio-managed number
-1. Twilio queries the webhook (`http://[your_backend]/twiml`) for TwiML instructions
+1. User enters their phone number in the webapp and clicks "Start Interview"
+1. Webapp makes an API call to initiate an outbound call via Twilio
+1. Twilio calls the user's number and queries the webhook (`http://[your_backend]/twiml`) for TwiML instructions
 1. Twilio opens a bi-directional stream to the backend (`wss://[your_backend]/call`)
 1. The backend connects to the Realtime API, and starts forwarding messages:
    - between Twilio and the Realtime API
@@ -68,27 +74,82 @@ This demo mocks out function calls so you can provide sample responses. In reali
 
 1. Make sure your [auth & env](#detailed-auth--env) is configured correctly.
 
-2. Run webapp.
+2. **Set up ngrok and get your public URL:**
+   ```shell
+   ngrok http 8081
+   ```
+   Copy the `Forwarding` URL (e.g., `https://abc123.ngrok-free.app`)
 
-```shell
-cd webapp
-npm install
-npm run dev
-```
+3. **Configure environment variables:**
+   - In `websocket-server/.env`, set `PUBLIC_URL=https://abc123.ngrok-free.app`
+   - In `webapp/.env`, set `NEXT_PUBLIC_WEBSOCKET_SERVER_URL=https://abc123.ngrok-free.app`
+   
+4. Run websocket server:
+   ```shell
+   cd websocket-server
+   npm install
+   npm run dev
+   ```
 
-3. Run websocket server.
+5. Run webapp:
+   ```shell
+   cd webapp
+   npm install
+   npm run dev
+   ```
 
-```shell
-cd websocket-server
-npm install
-npm run dev
-```
+**🔥 Pro tip:** Keep ngrok running throughout your development session. If you restart ngrok, you'll get a new URL and need to update both environment files!
 
 ## Detailed Auth & Env
 
-### OpenAI & Twilio
+### Webapp Environment Variables
 
-Set your credentials in `webapp/.env` and `websocket-server` - see `webapp/.env.example` and `websocket-server.env.example` for reference.
+The `webapp` requires the following environment variables in `webapp/.env`:
+
+**For Local Development:**
+```env
+# Twilio Configuration (for outbound calling)
+TWILIO_ACCOUNT_SID=your_twilio_account_sid
+TWILIO_AUTH_TOKEN=your_twilio_auth_token
+TWILIO_PHONE_NUMBER=+18058660137
+
+# WebSocket Server URL - Use your ngrok URL for local development
+NEXT_PUBLIC_WEBSOCKET_SERVER_URL=https://your-unique-id.ngrok-free.app
+```
+
+**For Production:**
+```env
+# Twilio Configuration (for outbound calling)
+TWILIO_ACCOUNT_SID=your_twilio_account_sid
+TWILIO_AUTH_TOKEN=your_twilio_auth_token
+TWILIO_PHONE_NUMBER=+18058660137
+
+# WebSocket Server URL - Use your deployed server URL
+NEXT_PUBLIC_WEBSOCKET_SERVER_URL=https://your-websocket-server.fly.dev
+```
+
+**Important Notes:**
+- `TWILIO_PHONE_NUMBER` must include the `+` sign and country code (E.164 format)
+- For local development, `NEXT_PUBLIC_WEBSOCKET_SERVER_URL` must use the **ngrok HTTPS URL** (not `ws://localhost:8081`) so the webapp can generate TwiML that Twilio can reach
+- The webapp uses this URL to generate the correct websocket endpoints for Twilio's TwiML
+
+### WebSocket Server Environment Variables
+
+The `websocket-server` requires these environment variables in `websocket-server/.env`:
+
+**For Local Development:**
+```env
+OPENAI_API_KEY=your_openai_api_key
+PUBLIC_URL=https://your-unique-id.ngrok-free.app
+PORT=8081
+```
+
+**For Production:**
+```env
+OPENAI_API_KEY=your_openai_api_key
+PUBLIC_URL=https://your-websocket-server.fly.dev
+PORT=8081
+```
 
 ### Ngrok
 

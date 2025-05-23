@@ -1,0 +1,153 @@
+"use client";
+
+import React, { useState } from "react";
+import { Label } from "@/components/ui/label";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Phone, PhoneCall, PhoneOff, Loader2 } from "lucide-react";
+import { isValidPhoneNumber } from "@/lib/phone-utils-client";
+import PhoneInput, { Country } from "react-phone-number-input";
+import "react-phone-number-input/style.css";
+
+interface PhoneInputProps {
+  onStartCall: (phoneNumber: string) => void;
+  callStatus: "idle" | "calling" | "ringing" | "connected" | "ended";
+  onEndCall: () => void;
+}
+
+export default function PhoneInputComponent({
+  onStartCall,
+  callStatus,
+  onEndCall,
+}: PhoneInputProps) {
+  const [phoneNumber, setPhoneNumber] = useState<string>("");
+  const [country, setCountry] = useState<Country>("US");
+
+  const handleStartCall = () => {
+    if (isValidPhone && phoneNumber) {
+      onStartCall(phoneNumber);
+    }
+  };
+
+  const getStatusText = () => {
+    switch (callStatus) {
+      case "calling":
+        return "Initiating call...";
+      case "ringing":
+        return "Calling your number...";
+      case "connected":
+        return "Interview in progress";
+      case "ended":
+        return "Interview ended";
+      default:
+        return "Ready to start your mock interview";
+    }
+  };
+
+  const getStatusColor = () => {
+    switch (callStatus) {
+      case "calling":
+      case "ringing":
+        return "text-blue-600";
+      case "connected":
+        return "text-green-600";
+      case "ended":
+        return "text-gray-600";
+      default:
+        return "text-gray-700";
+    }
+  };
+
+  const isValidPhone = isValidPhoneNumber(phoneNumber);
+
+  return (
+    <Card className="w-full max-w-md mx-auto">
+      <CardHeader className="text-center">
+        <CardTitle className="flex items-center justify-center gap-2">
+          <Phone className="h-5 w-5" />
+          AI Phone Interview
+        </CardTitle>
+        <p className="text-sm text-gray-600">
+          Enter your phone number to start a mock interview session
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {callStatus === "idle" || callStatus === "ended" ? (
+          <>
+            <div className="space-y-2">
+              <Label htmlFor="phone">Your Phone Number</Label>
+              <div className="relative">
+                <PhoneInput
+                  international
+                  countryCallingCodeEditable={false}
+                  defaultCountry={country}
+                  value={phoneNumber}
+                  onChange={(value) => setPhoneNumber(value || "")}
+                  onCountryChange={(country) => setCountry(country || "US")}
+                  className={`flex h-10 w-full rounded-md border px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 ${
+                    isValidPhone
+                      ? "border-green-500"
+                      : phoneNumber
+                      ? "border-red-500"
+                      : "border-input"
+                  }`}
+                  placeholder="Enter phone number"
+                />
+              </div>
+              {phoneNumber && !isValidPhone && (
+                <p className="text-sm text-red-600">
+                  Please enter a valid phone number
+                </p>
+              )}
+              <p className="text-xs text-gray-500">
+                Supports international numbers. Australian mobile: +61 4xx xxx
+                xxx
+              </p>
+            </div>
+            <Button
+              onClick={handleStartCall}
+              disabled={!isValidPhone}
+              className="w-full"
+              size="lg"
+            >
+              <PhoneCall className="h-4 w-4 mr-2" />
+              Start Interview
+            </Button>
+          </>
+        ) : (
+          <div className="text-center space-y-4">
+            <div className="flex justify-center">
+              {callStatus === "calling" || callStatus === "ringing" ? (
+                <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+              ) : callStatus === "connected" ? (
+                <PhoneCall className="h-8 w-8 text-green-600" />
+              ) : (
+                <PhoneOff className="h-8 w-8 text-gray-600" />
+              )}
+            </div>
+            <div>
+              <p className={`font-medium ${getStatusColor()}`}>
+                {getStatusText()}
+              </p>
+              <p className="text-sm text-gray-600">{phoneNumber}</p>
+            </div>
+            {callStatus === "connected" && (
+              <Button
+                onClick={onEndCall}
+                variant="destructive"
+                size="lg"
+                className="w-full"
+              >
+                <PhoneOff className="h-4 w-4 mr-2" />
+                End Interview
+              </Button>
+            )}
+          </div>
+        )}
+        <div className={`text-center text-sm ${getStatusColor()}`}>
+          {getStatusText()}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}

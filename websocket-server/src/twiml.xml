@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say>Connected</Say>
+  <Say voice="alice">Hello! You've connected to your AI interview practice session. Please wait a moment while we connect you to your interviewer.</Say>
   <Connect>
     <Stream url="{{WS_URL}}" />
   </Connect>
-  <Say>Disconnected</Say>
+  <Say voice="alice">Thank you for using our AI interview practice. Have a great day!</Say>
 </Response>

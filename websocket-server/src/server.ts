@@ -37,12 +37,15 @@ app.get("/public-url", (req, res) => {
   res.json({ publicUrl: PUBLIC_URL });
 });
 
+// TwiML endpoint for both inbound and outbound calls
 app.all("/twiml", (req, res) => {
+  console.log("📞 TwiML requested for call");
   const wsUrl = new URL(PUBLIC_URL);
   wsUrl.protocol = "wss:";
   wsUrl.pathname = `/call`;
 
   const twimlContent = twimlTemplate.replace("{{WS_URL}}", wsUrl.toString());
+  console.log("🔗 Generated TwiML with WebSocket URL:", wsUrl.toString());
   res.type("text/xml").send(twimlContent);
 });
 
@@ -59,25 +62,44 @@ wss.on("connection", (ws: WebSocket, req: IncomingMessage) => {
   const parts = url.pathname.split("/").filter(Boolean);
 
   if (parts.length < 1) {
+    console.log("❌ WebSocket connection rejected: Invalid path");
     ws.close();
     return;
   }
 
   const type = parts[0];
+  console.log(`🔌 New WebSocket connection: /${type}`);
 
   if (type === "call") {
-    if (currentCall) currentCall.close();
+    console.log("📞 Call connection established - starting audio stream");
+    if (currentCall) {
+      console.log("⚠️  Closing previous call connection");
+      currentCall.close();
+    }
     currentCall = ws;
     handleCallConnection(currentCall, OPENAI_API_KEY);
   } else if (type === "logs") {
-    if (currentLogs) currentLogs.close();
+    console.log("📊 Frontend logs connection established");
+    if (currentLogs) {
+      console.log("⚠️  Closing previous logs connection");
+      currentLogs.close();
+    }
     currentLogs = ws;
     handleFrontendConnection(currentLogs);
   } else {
+    console.log(`❌ Unknown WebSocket type: ${type}`);
     ws.close();
   }
 });
 
 server.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
+  console.log(`🚀 WebSocket server running on http://localhost:${PORT}`);
+  console.log(`📞 TwiML endpoint: http://localhost:${PORT}/twiml`);
+  console.log(`🔌 Call WebSocket: ws://localhost:${PORT}/call`);
+  console.log(`📊 Logs WebSocket: ws://localhost:${PORT}/logs`);
+  if (PUBLIC_URL) {
+    console.log(`🌐 Public URL: ${PUBLIC_URL}`);
+  } else {
+    console.log("⚠️  PUBLIC_URL not set - make sure to configure for production");
+  }
 });
