@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import TopBar from "@/components/top-bar";
 import ChecklistAndConfig from "@/components/checklist-and-config";
 import SessionConfigurationPanel from "@/components/session-configuration-panel";
@@ -19,6 +19,7 @@ const CallInterface = () => {
   const [callStatus, setCallStatus] = useState<CallStatus>("idle");
   const [ws, setWs] = useState<WebSocket | null>(null);
   const [currentCallSid, setCurrentCallSid] = useState<string | null>(null);
+  const timerRef = useRef<number | null>(null);
 
   // Connect to websocket when configs are ready and we're in a call
   useEffect(() => {
@@ -109,8 +110,9 @@ const CallInterface = () => {
         setCallStatus("ringing");
 
         // Simulate call progression (in real app, this would come from webhooks)
-        setTimeout(() => {
+        timerRef.current = window.setTimeout(() => {
           setCallStatus("connected");
+          timerRef.current = null;
         }, 3000);
       } else {
         console.error("Failed to start call:", data.error);
@@ -125,6 +127,12 @@ const CallInterface = () => {
   const handleEndCall = async () => {
     if (currentCallSid) {
       try {
+        // Clear any pending connection timer
+        if (timerRef.current) {
+          clearTimeout(timerRef.current);
+          timerRef.current = null;
+        }
+
         // In a real app, you'd make an API call to end the call
         // await fetch(`/api/call/${currentCallSid}/end`, { method: 'POST' });
 
