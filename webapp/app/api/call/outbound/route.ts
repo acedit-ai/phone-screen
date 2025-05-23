@@ -13,7 +13,7 @@ interface ServerRegion extends Region {
 
 function getServerRegions(): ServerRegion[] {
   // Get the US number as fallback
-  const fallbackNumber = process.env.TWILIO_PHONE_NUMBER_US || process.env.TWILIO_PHONE_NUMBER || '+18058660137';
+  const fallbackNumber = process.env.TWILIO_PHONE_NUMBER_US || '';
   
   return SUPPORTED_REGIONS.map(region => {
     let phoneNumber = '';
@@ -52,7 +52,7 @@ function getCallFromNumber(toPhoneNumber: string): string {
   }
   
   // Check if we're using fallback (US number for non-US regions)
-  const fallbackNumber = process.env.TWILIO_PHONE_NUMBER_US || process.env.TWILIO_PHONE_NUMBER || '+18058660137';
+  const fallbackNumber = process.env.TWILIO_PHONE_NUMBER_US || '';
   const isUsingFallback = region.code !== 'US' && serverRegion.phoneNumber === fallbackNumber;
   
   if (isUsingFallback) {
@@ -145,11 +145,22 @@ export async function POST(request: NextRequest) {
       region: region.name,
       fromNumber: fromPhoneNumber,
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error making outbound call:", error);
+    let errorMessage = "Failed to initiate call";
+    let statusCode = 500;
+    
+    // Provide more specific error messages based on the error type
+    if (error.name === 'RestException' && error.code) {
+      errorMessage = `Twilio error: ${error.message} (code: ${error.code})`;
+    } else if (error.message && error.message.includes('Unsupported region')) {
+      errorMessage = error.message;
+      statusCode = 400;
+    }
+    
     return NextResponse.json(
-      { error: "Failed to initiate call" },
-      { status: 500 }
+      { error: errorMessage },
+      { status: statusCode }
     );
   }
 }
