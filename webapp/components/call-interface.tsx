@@ -50,17 +50,44 @@ const CallInterface = () => {
       newWs.onmessage = (event) => {
         const data = JSON.parse(event.data);
         console.log("Received logs event:", data);
-        handleRealtimeEvent(data, setItems);
+        handleRealtimeEvent(data, setItems, setCallStatus);
       };
 
       newWs.onclose = () => {
         console.log("Logs websocket disconnected");
         setWs(null);
+        
+        // If the websocket closes while we're connected, it likely means the call ended
+        if (callStatus === "connected") {
+          console.log("WebSocket closed during active call - call likely ended");
+          setCallStatus("ended");
+        }
       };
 
       setWs(newWs);
     }
   }, [allConfigsReady, callStatus, ws]);
+
+  // Handle call status changes, particularly when call ends
+  useEffect(() => {
+    if (callStatus === "ended") {
+      // Clean up WebSocket connection if it exists
+      if (ws) {
+        ws.close();
+        setWs(null);
+      }
+
+      setCurrentCallSid(null);
+
+      // Reset to idle after a delay to show "ended" status briefly
+      const resetTimer = setTimeout(() => {
+        setCallStatus("idle");
+        setItems([]);
+      }, 2000);
+
+      return () => clearTimeout(resetTimer);
+    }
+  }, [callStatus, ws]);
 
   const handleStartCall = async (phoneNumber: string) => {
     try {

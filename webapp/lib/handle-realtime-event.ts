@@ -1,8 +1,11 @@
 import { Item } from "@/components/types";
 
+type CallStatus = "idle" | "calling" | "ringing" | "connected" | "ended";
+
 export default function handleRealtimeEvent(
   ev: any,
-  setItems: React.Dispatch<React.SetStateAction<Item[]>>
+  setItems: React.Dispatch<React.SetStateAction<Item[]>>,
+  setCallStatus?: React.Dispatch<React.SetStateAction<CallStatus>>
 ) {
   // Helper function to create a new item with default fields
   function createNewItem(base: Partial<Item>): Item {
@@ -221,6 +224,16 @@ export default function handleRealtimeEvent(
             status: "running",
           }),
         ]);
+      }
+      break;
+    }
+
+    case "call.status_changed": {
+      // Handle call status changes from the websocket server
+      const { status } = ev;
+      console.log("📞 Call status changed:", status);
+      if (setCallStatus) {
+        setCallStatus(status);
       }
       break;
     }

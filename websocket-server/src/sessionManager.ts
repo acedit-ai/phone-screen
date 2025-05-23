@@ -28,6 +28,15 @@ export function handleCallConnection(ws: WebSocket, openAIApiKey: string) {
   });
   ws.on("close", () => {
     console.log("📞 Call connection closed - cleaning up session");
+    
+    // Notify frontend that call ended BEFORE cleaning up
+    if (session.frontendConn) {
+      jsonSend(session.frontendConn, {
+        type: "call.status_changed",
+        status: "ended"
+      });
+    }
+    
     cleanupConnection(session.modelConn);
     cleanupConnection(session.twilioConn);
     session.twilioConn = undefined;
@@ -94,6 +103,14 @@ function handleTwilioMessage(data: RawData) {
       session.lastAssistantItem = undefined;
       session.responseStartTimestamp = undefined;
       tryConnectModel();
+      
+      // Notify frontend that call started
+      if (session.frontendConn) {
+        jsonSend(session.frontendConn, {
+          type: "call.status_changed",
+          status: "connected"
+        });
+      }
       break;
     case "media":
       session.latestMediaTimestamp = msg.media.timestamp;
@@ -106,6 +123,15 @@ function handleTwilioMessage(data: RawData) {
       break;
     case "close":
       console.log("🎬 Call stream ended");
+      
+      // Notify frontend that call ended BEFORE closing connections
+      if (session.frontendConn) {
+        jsonSend(session.frontendConn, {
+          type: "call.status_changed",
+          status: "ended"
+        });
+      }
+      
       closeAllConnections();
       break;
   }
