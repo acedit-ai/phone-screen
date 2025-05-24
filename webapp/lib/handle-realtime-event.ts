@@ -36,6 +36,7 @@ export default function handleRealtimeEvent(
   switch (type) {
     case "session.created": {
       // Starting a new session, clear all items
+      console.log("🎬 New session created, clearing transcript");
       setItems([]);
       break;
     }
@@ -234,6 +235,12 @@ export default function handleRealtimeEvent(
       console.log("📞 Call status changed:", status);
       if (setCallStatus) {
         setCallStatus(status);
+      }
+      
+      // If call ended, we can optionally clear items or keep them for review
+      if (status === "ended") {
+        console.log("📞 Call ended - keeping transcript for review");
+        // Don't clear items here - let the user see the full conversation
       }
       break;
     }

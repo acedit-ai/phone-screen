@@ -140,14 +140,18 @@ export function handleCallConnection(
     );
 
     // Notify frontend that call ended BEFORE cleaning up
-    if (session.frontendConn) {
-      jsonSend(session.frontendConn, {
+    if (session.frontendConn && isOpen(session.frontendConn)) {
+      const endMessage = {
         type: "call.status_changed",
         status: "ended",
         sessionId: session.id,
-      });
+        streamSid: session.streamSid,
+      };
+      console.log("📤 Notifying frontend of call end:", endMessage);
+      jsonSend(session.frontendConn, endMessage);
     }
 
+    // Clean up model connection
     cleanupConnection(session.modelConn);
     cleanupConnection(session.twilioConn);
 
@@ -156,6 +160,8 @@ export function handleCallConnection(
     if (session.streamSid && sessions.has(session.streamSid)) {
       sessions.delete(session.streamSid);
     }
+
+    console.log(`✅ Session cleanup complete: ${sessionKey}`);
   });
 }
 
@@ -177,9 +183,15 @@ export function handleFrontendConnection(ws: WebSocket) {
     waitingFrontendConnections.delete(ws);
     const session = findSessionByWebSocket(ws, "frontend");
     if (session) {
+      console.log(`🧹 Cleaning up frontend connection for session: ${session.streamSid || session.id}`);
       cleanupConnection(session.frontendConn);
       session.frontendConn = undefined;
     }
+  });
+
+  ws.on("error", (error) => {
+    console.error("🖥️  Frontend WebSocket error:", error);
+    waitingFrontendConnections.delete(ws);
   });
 }
 
@@ -287,15 +299,26 @@ function handleTwilioMessage(data: RawData, sessionId: string) {
       console.log("🎬 Call stream ended");
 
       // Notify frontend that call ended BEFORE closing connections
-      if (session.frontendConn) {
-        jsonSend(session.frontendConn, {
+      if (session.frontendConn && isOpen(session.frontendConn)) {
+        const endMessage = {
           type: "call.status_changed",
           status: "ended",
           sessionId: session.id,
           streamSid: session.streamSid,
-        });
+        };
+        console.log("📤 Sending call ended notification to frontend:", endMessage);
+        jsonSend(session.frontendConn, endMessage);
+        
+        // Give frontend time to process the message before closing connection
+        setTimeout(() => {
+          if (session.frontendConn && isOpen(session.frontendConn)) {
+            console.log("🔌 Closing frontend connection after call end");
+            session.frontendConn.close();
+          }
+        }, 1000);
       }
 
+      // Clean up the session
       closeAllConnections(session.streamSid || sessionId);
       break;
   }
@@ -384,10 +407,34 @@ function handleFrontendMessageForSession(msg: any, session: Session) {
       }:`,
       msg
     );
+    
+    // Update session with job configuration
     session.jobTitle = msg.jobTitle;
     session.company = msg.company;
     session.jobDescription = msg.jobDescription;
     session.voice = msg.voice;
+
+    // If the session already has an OpenAI connection, update it with the new configuration
+    if (session.modelConn && isOpen(session.modelConn)) {
+      console.log("🔄 Updating existing OpenAI session with new job configuration");
+      
+      // Send session update with new voice if specified
+      if (msg.voice) {
+        const sessionUpdate = {
+          type: "session.update",
+          session: {
+            voice: msg.voice,
+            modalities: ["text", "audio"],
+            turn_detection: { type: "server_vad" },
+            input_audio_transcription: { model: "whisper-1" },
+            input_audio_format: "g711_ulaw",
+            output_audio_format: "g711_ulaw",
+          },
+        };
+        jsonSend(session.modelConn, sessionUpdate);
+      }
+    }
+    
     return;
   }
 
@@ -716,6 +763,40 @@ function closeAllConnections(sessionKey: string) {
 
 function cleanupConnection(ws?: WebSocket) {
   if (isOpen(ws)) ws.close();
+}
+
+/**
+ * Reset all session state and cleanup connections
+ * Used when starting a new session to ensure clean state
+ */
+export function resetAllSessions() {
+  console.log(`🧹 Resetting all sessions (${sessions.size} active sessions)`);
+  
+  for (const [sessionKey, session] of sessions.entries()) {
+    console.log(`🧹 Cleaning up session: ${sessionKey}`);
+    
+    // Close all connections
+    if (session.twilioConn) {
+      cleanupConnection(session.twilioConn);
+    }
+    if (session.modelConn) {
+      cleanupConnection(session.modelConn);
+    }
+    if (session.frontendConn) {
+      cleanupConnection(session.frontendConn);
+    }
+  }
+  
+  // Clear all sessions
+  sessions.clear();
+  
+  // Clear waiting frontend connections
+  for (const ws of waitingFrontendConnections) {
+    cleanupConnection(ws);
+  }
+  waitingFrontendConnections.clear();
+  
+  console.log("✅ All sessions reset");
 }
 
 function parseMessage(data: RawData): any {

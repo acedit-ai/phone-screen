@@ -70,13 +70,42 @@ const CallInterface = () => {
       }
 
       console.log("Connecting to logs websocket:", websocketUrl);
+      console.log("Job configuration ready:", { jobTitle, company, jobDescription, voice });
 
       const newWs = new WebSocket(websocketUrl);
 
       newWs.onopen = () => {
         console.log("Connected to logs websocket");
 
-        // Wait a moment for session association to complete before sending job config
+        // Send job configuration immediately if ready
+        if (isConfigurationReady && newWs.readyState === WebSocket.OPEN) {
+          const jobConfig = {
+            type: "job.configuration",
+            jobTitle,
+            company,
+            jobDescription,
+            voice,
+          };
+          console.log("Sending initial job configuration:", jobConfig);
+          newWs.send(JSON.stringify(jobConfig));
+
+          // Also send session update with voice
+          const sessionUpdate = {
+            type: "session.update",
+            session: {
+              voice,
+              modalities: ["text", "audio"],
+              turn_detection: { type: "server_vad" },
+              input_audio_transcription: { model: "whisper-1" },
+              input_audio_format: "g711_ulaw",
+              output_audio_format: "g711_ulaw",
+            },
+          };
+          console.log("Sending session update:", sessionUpdate);
+          newWs.send(JSON.stringify(sessionUpdate));
+        }
+
+        // Also try again after a delay to ensure session association
         setTimeout(() => {
           if (isConfigurationReady && newWs.readyState === WebSocket.OPEN) {
             const jobConfig = {
@@ -86,24 +115,10 @@ const CallInterface = () => {
               jobDescription,
               voice,
             };
-            console.log("Sending job configuration:", jobConfig);
+            console.log("Retry sending job configuration:", jobConfig);
             newWs.send(JSON.stringify(jobConfig));
-
-            // Also send session update with voice
-            const sessionUpdate = {
-              type: "session.update",
-              session: {
-                voice,
-                modalities: ["text", "audio"],
-                turn_detection: { type: "server_vad" },
-                input_audio_transcription: { model: "whisper-1" },
-                input_audio_format: "g711_ulaw",
-                output_audio_format: "g711_ulaw",
-              },
-            };
-            newWs.send(JSON.stringify(sessionUpdate));
           }
-        }, 1500); // Wait 1.5 seconds for session to be properly set up
+        }, 1500);
       };
 
       newWs.onmessage = (event) => {
@@ -132,11 +147,20 @@ const CallInterface = () => {
           }
         }
 
+        // Handle call ended status
+        if (
+          data.type === "call.status_changed" &&
+          data.status === "ended"
+        ) {
+          console.log("Call ended detected from websocket");
+          setCallStatus("ended");
+        }
+
         handleRealtimeEvent(data, setItems, setCallStatus);
       };
 
-      newWs.onclose = () => {
-        console.log("Logs websocket disconnected");
+      newWs.onclose = (event) => {
+        console.log("Logs websocket disconnected", event.code, event.reason);
         setWs(null);
 
         // If the websocket closes while we're connected, it likely means the call ended
@@ -146,6 +170,10 @@ const CallInterface = () => {
           );
           setCallStatus("ended");
         }
+      };
+
+      newWs.onerror = (error) => {
+        console.error("WebSocket error:", error);
       };
 
       setWs(newWs);
@@ -237,6 +265,28 @@ const CallInterface = () => {
         console.error("Error ending call:", error);
       }
     }
+  };
+
+  const handlePracticeAgain = () => {
+    // Clean up any existing websocket connection
+    if (ws) {
+      console.log("Cleaning up existing websocket connection");
+      ws.close();
+      setWs(null);
+    }
+
+    // Clear any pending timers
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+
+    // Reset all state for a fresh session
+    setCallStatus("idle");
+    setItems([]);
+    setCurrentCallSid(null);
+    
+    console.log("State reset for new practice session");
   };
 
   const renderContent = () => {
@@ -422,10 +472,7 @@ const CallInterface = () => {
                   <Button
                     variant="outline"
                     size="lg"
-                    onClick={() => {
-                      setCallStatus("idle");
-                      setItems([]);
-                    }}
+                    onClick={handlePracticeAgain}
                     className="px-8 py-3 text-lg border-gray-300 hover:bg-gray-50"
                   >
                     Practice Again
@@ -518,6 +565,19 @@ const CallInterface = () => {
       </div>
     );
   };
+
+  // Cleanup websocket on unmount
+  useEffect(() => {
+    return () => {
+      if (ws) {
+        console.log("Component unmounting - cleaning up websocket");
+        ws.close();
+      }
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+      }
+    };
+  }, [ws]);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-50 to-indigo-50 flex flex-col">
