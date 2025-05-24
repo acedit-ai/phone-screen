@@ -85,20 +85,6 @@ X-RateLimit-Reset: 1703123456
 X-Phone-RateLimit-Remaining: 1
 ```
 
-## Admin Endpoints
-
-### View Rate Limiting Statistics
-```bash
-curl -H "Authorization: Bearer your-admin-secret" \
-  https://your-app.vercel.app/api/admin/rate-limit-stats
-```
-
-### Cleanup Old Entries
-```bash
-curl -X DELETE -H "Authorization: Bearer your-admin-secret" \
-  "https://your-app.vercel.app/api/admin/rate-limit-stats?hours=24"
-```
-
 ## Error Responses
 
 ### IP Rate Limit Exceeded
