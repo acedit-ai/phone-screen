@@ -33,6 +33,16 @@ interface CallEntry {
 }
 
 /**
+ * Interface representing a phone number tracking entry
+ */
+interface PhoneEntry {
+  /** Array of call timestamps for this phone number within the tracking window */
+  callTimes: number[];
+  /** Timestamp of last call to this number */
+  lastCallTime: number;
+}
+
+/**
  * Interface representing a violation tracking entry
  */
 interface ViolationEntry {
@@ -90,6 +100,7 @@ export class RateLimitService {
   private config: RateLimitConfig;
   private connectionCache: NodeCache;
   private callCache: NodeCache;
+  private phoneCache: NodeCache;
   private violationCache: NodeCache;
   private metrics: RateLimitMetrics;
   private cleanupInterval: NodeJS.Timeout | null = null;
@@ -117,6 +128,12 @@ export class RateLimitService {
     });
 
     this.callCache = new NodeCache({
+      stdTTL: Math.ceil(config.websocket.callFrequencyWindow / 1000),
+      checkperiod: 60,
+      useClones: false,
+    });
+
+    this.phoneCache = new NodeCache({
       stdTTL: Math.ceil(config.websocket.callFrequencyWindow / 1000),
       checkperiod: 60,
       useClones: false,
@@ -308,6 +325,98 @@ export class RateLimitService {
   }
 
   /**
+   * Checks if a call to a specific phone number should be allowed
+   *
+   * @param phoneNumber - Phone number being called (in E.164 format)
+   * @param ipAddress - IP address of the calling client (for logging)
+   * @returns Promise resolving to rate limit result
+   */
+  public async checkPhoneNumberLimit(
+    phoneNumber: string,
+    ipAddress?: string
+  ): Promise<RateLimitResult> {
+    // Skip if phone number rate limiting is disabled
+    if (!this.config.phone.enabled) {
+      return { allowed: true };
+    }
+
+    const now = Date.now();
+    const windowStart = now - this.config.phone.windowMs;
+
+    // Get or create phone entry for this number
+    const phoneEntry = this.phoneCache.get<PhoneEntry>(phoneNumber) || {
+      callTimes: [],
+      lastCallTime: 0,
+    };
+
+    // Remove calls outside the current window
+    phoneEntry.callTimes = phoneEntry.callTimes.filter(
+      (time: number) => time > windowStart
+    );
+
+    // Check if we're within the cooldown period
+    if (phoneEntry.lastCallTime > 0) {
+      const timeSinceLastCall = now - phoneEntry.lastCallTime;
+      if (timeSinceLastCall < this.config.phone.cooldownMs) {
+        const remainingCooldown = this.config.phone.cooldownMs - timeSinceLastCall;
+        
+        if (this.config.monitoring.logViolations) {
+          console.warn(
+            `🚫 Phone number ${phoneNumber} is in cooldown period (${Math.ceil(remainingCooldown / 1000)}s remaining)${ipAddress ? ` - IP: ${ipAddress}` : ''}`
+          );
+        }
+
+        return {
+          allowed: false,
+          reason: `Phone number is in cooldown period. Please wait ${Math.ceil(remainingCooldown / 1000)} seconds before calling again.`,
+          resetTime: remainingCooldown,
+        };
+      }
+    }
+
+    // Check call frequency limit for this phone number
+    if (phoneEntry.callTimes.length >= this.config.phone.maxCallsPerNumber) {
+      const oldestCall = Math.min(...phoneEntry.callTimes);
+      const resetTime = oldestCall + this.config.phone.windowMs - now;
+
+      if (this.config.monitoring.logViolations) {
+        console.warn(
+          `🚫 Phone number ${phoneNumber} has exceeded call limit (${this.config.phone.maxCallsPerNumber} calls per ${this.config.phone.windowMs / 60000} minutes)${ipAddress ? ` - IP: ${ipAddress}` : ''}`
+        );
+      }
+
+      return {
+        allowed: false,
+        reason: `Too many calls to this phone number (max: ${this.config.phone.maxCallsPerNumber} per ${Math.ceil(this.config.phone.windowMs / 60000)} minutes)`,
+        resetTime: Math.max(0, resetTime),
+        remaining: 0,
+      };
+    }
+
+    // Allow the call - record it
+    phoneEntry.callTimes.push(now);
+    phoneEntry.lastCallTime = now;
+    this.phoneCache.set(phoneNumber, phoneEntry);
+
+    // Calculate remaining calls and reset time
+    const remaining = this.config.phone.maxCallsPerNumber - phoneEntry.callTimes.length;
+    const oldestCall = phoneEntry.callTimes.length > 0 ? Math.min(...phoneEntry.callTimes) : now;
+    const resetTime = oldestCall + this.config.phone.windowMs - now;
+
+    if (this.config.monitoring.enableDetailedLogging) {
+      console.log(
+        `📞 Phone call allowed to ${phoneNumber} (${remaining} calls remaining)${ipAddress ? ` - IP: ${ipAddress}` : ''}`
+      );
+    }
+
+    return {
+      allowed: true,
+      remaining,
+      resetTime: Math.max(0, resetTime),
+    };
+  }
+
+  /**
    * Records that a WebSocket connection has been closed
    *
    * @param ipAddress - IP address of the disconnecting client
@@ -428,6 +537,7 @@ Progressive delays: ${
   public resetLimitsForIP(ipAddress: string): void {
     this.connectionCache.del(ipAddress);
     this.callCache.del(ipAddress);
+    this.phoneCache.del(ipAddress);
     this.violationCache.del(ipAddress);
 
     if (this.config.monitoring.enableDetailedLogging) {
@@ -481,6 +591,7 @@ Progressive delays: ${
 
     this.connectionCache.flushAll();
     this.callCache.flushAll();
+    this.phoneCache.flushAll();
     this.violationCache.flushAll();
 
     console.log("🛡️  Rate limiting service shut down");

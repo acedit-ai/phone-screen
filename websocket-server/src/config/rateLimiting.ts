@@ -48,6 +48,20 @@ export interface WebSocketRateLimitConfig {
 }
 
 /**
+ * Configuration interface for phone number-based rate limiting
+ */
+export interface PhoneRateLimitConfig {
+  /** Maximum number of calls allowed per phone number within the window */
+  maxCallsPerNumber: number;
+  /** Time window for phone number rate limiting in milliseconds */
+  windowMs: number;
+  /** Cooldown period between calls to the same number in milliseconds */
+  cooldownMs: number;
+  /** Whether to enable phone number rate limiting */
+  enabled: boolean;
+}
+
+/**
  * Configuration interface for penalty and progressive enforcement
  */
 export interface PenaltyConfig {
@@ -83,6 +97,7 @@ export interface MonitoringConfig {
 export interface RateLimitConfig {
   api: ApiRateLimitConfig;
   websocket: WebSocketRateLimitConfig;
+  phone: PhoneRateLimitConfig;
   penalties: PenaltyConfig;
   monitoring: MonitoringConfig;
 }
@@ -97,7 +112,7 @@ export const DEFAULT_RATE_LIMIT_CONFIG: RateLimitConfig = {
   api: {
     windowMs: 15 * 60 * 1000, // 15 minutes
     maxRequests: 30, // 30 requests per 15 minutes per IP
-    maxCalls: 3, // 3 calls per 15 minutes per IP
+    maxCalls: 2, // 2 calls per 15 minutes per IP (reduced from 3)
     trustProxy: true, // Trust reverse proxy headers
     message: 'Too many requests from this IP, please try again later.',
     standardHeaders: true,
@@ -108,8 +123,14 @@ export const DEFAULT_RATE_LIMIT_CONFIG: RateLimitConfig = {
     maxCallsPerHour: 5, // 5 calls per hour per IP
     maxGlobalConcurrentCalls: 10, // 10 total concurrent calls
     maxGlobalConcurrentConnections: 10, // 10 total concurrent connections
-    maxSessionDuration: 10 * 60 * 1000, // 10 minutes per session
+    maxSessionDuration: 5 * 60 * 1000, // 5 minutes per session (reduced from 10)
     callFrequencyWindow: 60 * 60 * 1000, // 1 hour window
+  },
+  phone: {
+    maxCallsPerNumber: 2, // 2 calls per phone number per window (restrictive)
+    windowMs: 60 * 60 * 1000, // 1 hour window 
+    cooldownMs: 30 * 60 * 1000, // 30 minutes cooldown between calls
+    enabled: true, // Enable phone number rate limiting
   },
   penalties: {
     suspensionDuration: 60 * 60 * 1000, // 1 hour suspension
@@ -138,6 +159,9 @@ export const DEFAULT_RATE_LIMIT_CONFIG: RateLimitConfig = {
  * - RATE_LIMIT_MAX_CONCURRENT_CONNECTIONS: Global concurrent connection limit
  * - RATE_LIMIT_SESSION_DURATION: Max session duration in milliseconds
  * - RATE_LIMIT_SUSPENSION_DURATION: Penalty suspension duration
+ * - RATE_LIMIT_PHONE_MAX_CALLS: Max calls per phone number per window
+ * - RATE_LIMIT_PHONE_WINDOW_MS: Phone number rate limit window in milliseconds
+ * - RATE_LIMIT_PHONE_COOLDOWN_MS: Cooldown between calls to same number in milliseconds
  * 
  * @returns {RateLimitConfig} The merged configuration object
  */
@@ -181,6 +205,28 @@ export function createRateLimitConfig(): RateLimitConfig {
   if (process.env.RATE_LIMIT_SUSPENSION_DURATION) {
     config.penalties.suspensionDuration = parseInt(
       process.env.RATE_LIMIT_SUSPENSION_DURATION,
+      10
+    );
+  }
+
+  // Phone number rate limiting environment variables
+  if (process.env.RATE_LIMIT_PHONE_MAX_CALLS) {
+    config.phone.maxCallsPerNumber = parseInt(
+      process.env.RATE_LIMIT_PHONE_MAX_CALLS,
+      10
+    );
+  }
+
+  if (process.env.RATE_LIMIT_PHONE_WINDOW_MS) {
+    config.phone.windowMs = parseInt(
+      process.env.RATE_LIMIT_PHONE_WINDOW_MS,
+      10
+    );
+  }
+
+  if (process.env.RATE_LIMIT_PHONE_COOLDOWN_MS) {
+    config.phone.cooldownMs = parseInt(
+      process.env.RATE_LIMIT_PHONE_COOLDOWN_MS,
       10
     );
   }
@@ -239,6 +285,19 @@ function validateConfig(config: RateLimitConfig): void {
     errors.push('Penalty delays must be positive numbers');
   }
 
+  // Validate phone config
+  if (config.phone.enabled) {
+    if (config.phone.maxCallsPerNumber < 1) {
+      errors.push('Phone max calls per number must be at least 1');
+    }
+    if (config.phone.windowMs < 60000) {
+      errors.push('Phone rate limit window must be at least 1 minute');
+    }
+    if (config.phone.cooldownMs < 0) {
+      errors.push('Phone cooldown must be a positive number');
+    }
+  }
+
   if (errors.length > 0) {
     throw new Error(`Rate limit configuration validation failed:\n${errors.join('\n')}`);
   }
@@ -267,6 +326,9 @@ Rate Limiting Configuration:
     - ${config.websocket.maxGlobalConcurrentCalls} total concurrent calls globally
     - ${config.websocket.maxGlobalConcurrentConnections} total concurrent connections globally
     - ${sessionMinutes} minute maximum session duration
+  
+  Phone Limits:
+    - ${config.phone.maxCallsPerNumber} calls per phone number per ${config.phone.windowMs / 60000} minutes
   
   Penalties:
     - ${suspensionHours} hour suspension for repeat offenders
