@@ -5,16 +5,15 @@ import "./globals.css";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "OpenAI Realtime + Twilio",
-  description:
-    "Sample phone call assistant app for OpenAI Realtime API and Twilio",
+  title: "AI Phone Screening Demo",
+  description: "AI-powered phone screening system for job candidates",
 };
 
 export default function RootLayout({
   children,
-}: Readonly<{
+}: {
   children: React.ReactNode;
-}>) {
+}) {
   return (
     <html lang="en">
       <body className={inter.className}>
