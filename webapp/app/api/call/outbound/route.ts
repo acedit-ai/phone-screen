@@ -10,6 +10,15 @@ import {
   Region,
 } from "@/lib/regions";
 
+// Rate limiting imports
+import {
+  applyRateLimit,
+  RATE_LIMIT_CONFIGS,
+  getRateLimitHeaders,
+  createRateLimitErrorResponse,
+  getClientIP,
+} from "@/lib/rateLimiting";
+
 // Extend region with server-side phone number
 interface ServerRegion extends Region {
   phoneNumber: string;
@@ -76,12 +85,38 @@ const websocketServerUrl =
   process.env.NEXT_PUBLIC_WEBSOCKET_SERVER_URL || "ws://localhost:8081";
 
 export async function POST(request: NextRequest) {
+  const clientIP = getClientIP(request);
+  
   try {
+    // Apply rate limiting for call endpoints
+    const rateLimitResult = await applyRateLimit(
+      request, 
+      RATE_LIMIT_CONFIGS.calls, 
+      'outbound_call'
+    );
+
+    if (!rateLimitResult.success) {
+      console.warn(`🚫 Outbound call rate limit exceeded for IP: ${clientIP}`);
+      
+      return NextResponse.json(
+        createRateLimitErrorResponse(rateLimitResult, RATE_LIMIT_CONFIGS.calls),
+        { 
+          status: 429,
+          headers: getRateLimitHeaders(rateLimitResult, RATE_LIMIT_CONFIGS.calls)
+        }
+      );
+    }
+
+    console.log(`📞 Outbound call request from ${clientIP} (${rateLimitResult.remaining} calls remaining)`);
+
     // Validate Twilio configuration
     if (!accountSid || !authToken) {
       return NextResponse.json(
         { error: "Twilio configuration missing" },
-        { status: 500 }
+        { 
+          status: 500,
+          headers: getRateLimitHeaders(rateLimitResult, RATE_LIMIT_CONFIGS.calls)
+        }
       );
     }
 
@@ -90,7 +125,10 @@ export async function POST(request: NextRequest) {
     if (!phoneNumber) {
       return NextResponse.json(
         { error: "Phone number is required" },
-        { status: 400 }
+        { 
+          status: 400,
+          headers: getRateLimitHeaders(rateLimitResult, RATE_LIMIT_CONFIGS.calls)
+        }
       );
     }
 
@@ -98,7 +136,10 @@ export async function POST(request: NextRequest) {
     if (!isValidPhoneNumberServer(phoneNumber)) {
       return NextResponse.json(
         { error: "Invalid phone number format" },
-        { status: 400 }
+        { 
+          status: 400,
+          headers: getRateLimitHeaders(rateLimitResult, RATE_LIMIT_CONFIGS.calls)
+        }
       );
     }
 
@@ -115,7 +156,10 @@ export async function POST(request: NextRequest) {
             countryCode: r.countryCode,
           })),
         },
-        { status: 400 }
+        { 
+          status: 400,
+          headers: getRateLimitHeaders(rateLimitResult, RATE_LIMIT_CONFIGS.calls)
+        }
       );
     }
 
@@ -129,7 +173,10 @@ export async function POST(request: NextRequest) {
           error: `No local phone number configured for ${region.name}. Please contact support.`,
           region: region.name,
         },
-        { status: 400 }
+        { 
+          status: 400,
+          headers: getRateLimitHeaders(rateLimitResult, RATE_LIMIT_CONFIGS.calls)
+        }
       );
     }
 
@@ -157,7 +204,7 @@ export async function POST(request: NextRequest) {
     }
 
     console.log(
-      `📞 Making call from ${fromPhoneNumber} (${region.name}) to ${formattedPhoneNumber}`
+      `📞 Making call from ${fromPhoneNumber} (${region.name}) to ${formattedPhoneNumber} for IP ${clientIP}`
     );
     if (jobConfiguration) {
       console.log(
@@ -178,9 +225,11 @@ export async function POST(request: NextRequest) {
       status: call.status,
       region: region.name,
       fromNumber: fromPhoneNumber,
+    }, {
+      headers: getRateLimitHeaders(rateLimitResult, RATE_LIMIT_CONFIGS.calls)
     });
   } catch (error: any) {
-    console.error("Error making outbound call:", error);
+    console.error(`Error making outbound call for IP ${clientIP}:`, error);
     let errorMessage = "Failed to initiate call";
     let statusCode = 500;
 

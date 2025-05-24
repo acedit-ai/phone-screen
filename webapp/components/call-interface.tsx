@@ -11,6 +11,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Phone, Zap, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
+import { makeVerifiedPost } from "@/lib/api";
 
 type CallStatus = "idle" | "calling" | "ringing" | "connected" | "ended";
 
@@ -46,18 +47,24 @@ const CallInterface = () => {
         websocketUrl = `${protocol}//${host}/logs`;
       } else {
         // Check if we're in development (localhost)
-        const isDevelopment = typeof window !== 'undefined' && 
-          (window.location.hostname === 'localhost' || 
-           window.location.hostname === '127.0.0.1');
-        
+        const isDevelopment =
+          typeof window !== "undefined" &&
+          (window.location.hostname === "localhost" ||
+            window.location.hostname === "127.0.0.1");
+
         if (isDevelopment) {
           // Development: Use localhost
-          const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+          const protocol =
+            window.location.protocol === "https:" ? "wss:" : "ws:";
           websocketUrl = `${protocol}//localhost:8081/logs`;
         } else {
           // Production but no NEXT_PUBLIC_WEBSOCKET_SERVER_URL set - this is an error
-          console.error("NEXT_PUBLIC_WEBSOCKET_SERVER_URL environment variable is required in production");
-          console.error("Please set NEXT_PUBLIC_WEBSOCKET_SERVER_URL to your WebSocket server URL (e.g., https://websocket-server-red-resonance-1640.fly.dev)");
+          console.error(
+            "NEXT_PUBLIC_WEBSOCKET_SERVER_URL environment variable is required in production"
+          );
+          console.error(
+            "Please set NEXT_PUBLIC_WEBSOCKET_SERVER_URL to your WebSocket server URL (e.g., https://websocket-server-red-resonance-1640.fly.dev)"
+          );
           return;
         }
       }
@@ -173,21 +180,15 @@ const CallInterface = () => {
     try {
       setCallStatus("calling");
 
-      const response = await fetch("/api/call/outbound", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
+      const response = await makeVerifiedPost("/api/call/outbound", {
+        phoneNumber,
+        // Include job configuration in the call request
+        jobConfiguration: {
+          jobTitle,
+          company,
+          jobDescription,
+          voice,
         },
-        body: JSON.stringify({
-          phoneNumber,
-          // Include job configuration in the call request
-          jobConfiguration: {
-            jobTitle,
-            company,
-            jobDescription,
-            voice,
-          },
-        }),
       });
 
       const data = await response.json();
@@ -337,19 +338,31 @@ const CallInterface = () => {
                     Upgrade to Advanced Mock Interviews + Real-Time Coaching
                   </h3>
                   <p className="text-gray-600 max-w-2xl mx-auto">
-                    This basic practice was just the start! Acedit offers <strong>advanced mock interviews</strong> that 
-                    simulate real job scenarios with personalized response recommendations. Plus, get 
-                    <strong> real-time AI coaching during your actual Zoom, Teams, or Google Meet interviews</strong>.
+                    This basic practice was just the start! Acedit offers{" "}
+                    <strong>advanced mock interviews</strong> that simulate real
+                    job scenarios with personalized response recommendations.
+                    Plus, get
+                    <strong>
+                      {" "}
+                      real-time AI coaching during your actual Zoom, Teams, or
+                      Google Meet interviews
+                    </strong>
+                    .
                   </p>
-                  
+
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4 text-sm">
                     <div className="flex items-start gap-3 p-3 bg-white rounded-lg text-left">
                       <div className="w-6 h-6 bg-purple-100 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
                         <span className="text-purple-600 text-xs">🎯</span>
                       </div>
                       <div>
-                        <div className="font-medium text-gray-900">Advanced Mock Interviews</div>
-                        <div className="text-gray-600">Realistic job scenarios with personalized response suggestions</div>
+                        <div className="font-medium text-gray-900">
+                          Advanced Mock Interviews
+                        </div>
+                        <div className="text-gray-600">
+                          Realistic job scenarios with personalized response
+                          suggestions
+                        </div>
                       </div>
                     </div>
                     <div className="flex items-start gap-3 p-3 bg-white rounded-lg text-left">
@@ -357,8 +370,12 @@ const CallInterface = () => {
                         <span className="text-purple-600 text-xs">⚡</span>
                       </div>
                       <div>
-                        <div className="font-medium text-gray-900">Live Interview Assistance</div>
-                        <div className="text-gray-600">Real-time coaching during actual video interviews</div>
+                        <div className="font-medium text-gray-900">
+                          Live Interview Assistance
+                        </div>
+                        <div className="text-gray-600">
+                          Real-time coaching during actual video interviews
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -428,12 +445,19 @@ const CallInterface = () => {
             Practice Phone Interviews with AI
           </h2>
           <div className="text-lg text-gray-600 max-w-2xl mx-auto">
-            <p className="mb-2">
-              Get started with this free AI practice tool.
-            </p>
+            <p className="mb-2">Get started with this free AI practice tool.</p>
             <p>
-              Ready for more? <a href="https://www.acedit.ai/" target="_blank" rel="noopener noreferrer" className="text-purple-600 hover:text-purple-700 font-semibold underline decoration-2 underline-offset-2">Acedit</a> offers 
-              advanced mock interviews that simulate real job scenarios, plus real-time AI coaching during your actual video interviews.
+              Ready for more?{" "}
+              <a
+                href="https://www.acedit.ai/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-purple-600 hover:text-purple-700 font-semibold underline decoration-2 underline-offset-2"
+              >
+                Acedit
+              </a>{" "}
+              offers advanced mock interviews that simulate real job scenarios,
+              plus real-time AI coaching during your actual video interviews.
             </p>
           </div>
         </div>
@@ -479,7 +503,7 @@ const CallInterface = () => {
                       </h3>
                     </div>
                     <p className="text-gray-600 text-sm mb-4">
-                      Enter your phone number and we'll call you to begin
+                      Complete the job details to enable phone input and verification
                     </p>
                     <div className="inline-flex items-center gap-2 px-4 py-2 bg-purple-50 text-purple-700 rounded-full text-sm font-medium">
                       <div className="w-2 h-2 bg-purple-400 rounded-full animate-pulse"></div>
@@ -512,9 +536,14 @@ const CallInterface = () => {
                   Ready for Advanced Mock Interviews & Real Interview Success?
                 </h3>
                 <p className="text-sm sm:text-base text-gray-600 max-w-3xl mx-auto">
-                  This basic phone practice is just the beginning. Acedit provides advanced mock interviews with 
-                  personalized response recommendations, plus real-time AI coaching during actual interviews. 
-                  <span className="hidden sm:inline"> Join 3,800+ candidates who landed jobs!</span>
+                  This basic phone practice is just the beginning. Acedit
+                  provides advanced mock interviews with personalized response
+                  recommendations, plus real-time AI coaching during actual
+                  interviews.
+                  <span className="hidden sm:inline">
+                    {" "}
+                    Join 3,800+ candidates who landed jobs!
+                  </span>
                 </p>
               </div>
 
