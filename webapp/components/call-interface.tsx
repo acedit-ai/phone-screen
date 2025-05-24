@@ -26,6 +26,7 @@ const CallInterface = () => {
   const [company, setCompany] = useState("");
   const [jobDescription, setJobDescription] = useState("");
   const [voice, setVoice] = useState("ash");
+  const [difficulty, setDifficulty] = useState("medium");
 
   // Check if basic configuration is complete
   const isConfigurationReady = jobTitle.trim() !== "" && company.trim() !== "";
@@ -78,6 +79,7 @@ const CallInterface = () => {
               company,
               jobDescription,
               voice,
+              difficulty,
             };
             console.log("Sending job configuration:", jobConfig);
             newWs.send(JSON.stringify(jobConfig));
@@ -118,6 +120,7 @@ const CallInterface = () => {
                 company,
                 jobDescription,
                 voice,
+                difficulty,
               };
               console.log("Retrying job configuration send:", jobConfig);
               newWs.send(JSON.stringify(jobConfig));
@@ -151,6 +154,7 @@ const CallInterface = () => {
     company,
     jobDescription,
     voice,
+    difficulty,
   ]);
 
   // Handle call status changes, particularly when call ends
@@ -186,6 +190,7 @@ const CallInterface = () => {
             company,
             jobDescription,
             voice,
+            difficulty,
           },
         }),
       });
@@ -447,10 +452,12 @@ const CallInterface = () => {
               company={company}
               jobDescription={jobDescription}
               voice={voice}
+              difficulty={difficulty}
               onJobTitleChange={setJobTitle}
               onCompanyChange={setCompany}
               onJobDescriptionChange={setJobDescription}
               onVoiceChange={setVoice}
+              onDifficultyChange={setDifficulty}
             />
           </div>
 

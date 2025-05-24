@@ -18,6 +18,7 @@ interface Session {
   company?: string;
   jobDescription?: string;
   voice?: string;
+  difficulty?: string;
 }
 
 // Map to store multiple sessions, keyed by streamSid (or temporary ID)
@@ -69,6 +70,7 @@ export function handleCallConnection(
     company?: string;
     jobDescription?: string;
     voice?: string;
+    difficulty?: string;
   }
 ) {
   console.log("🎤 Setting up call connection with OpenAI Realtime API");
@@ -84,6 +86,7 @@ export function handleCallConnection(
     company: jobConfig?.company,
     jobDescription: jobConfig?.jobDescription,
     voice: jobConfig?.voice,
+    difficulty: jobConfig?.difficulty,
   };
 
   sessions.set(sessionId, session);
@@ -380,6 +383,7 @@ function handleFrontendMessageForSession(msg: any, session: Session) {
     session.company = msg.company;
     session.jobDescription = msg.jobDescription;
     session.voice = msg.voice;
+    session.difficulty = msg.difficulty;
     return;
   }
 
@@ -426,9 +430,42 @@ function tryConnectModel(sessionKey: string) {
       const jobTitle = session.jobTitle || "this position";
       const company = session.company || "the company";
       const jobDescription = session.jobDescription || "";
+      const difficulty = session.difficulty || "medium";
+
+      // Define difficulty-specific behavior
+      const difficultySettings = {
+        easy: {
+          questionStyle: "straightforward, supportive questions that help the candidate succeed",
+          feedbackStyle: "encouraging and constructive feedback, focusing on strengths and gentle guidance for improvement",
+          pace: "relaxed pace with plenty of time for the candidate to think and respond",
+          followUp: "supportive follow-up questions that help guide the candidate to better answers"
+        },
+        medium: {
+          questionStyle: "professional, balanced questions that appropriately challenge the candidate",
+          feedbackStyle: "balanced feedback that acknowledges both strengths and areas for improvement in a professional manner",
+          pace: "standard professional pace with reasonable time for responses",
+          followUp: "clarifying follow-up questions to dig deeper into responses"
+        },
+        hard: {
+          questionStyle: "challenging, detailed questions that test deep knowledge and problem-solving under pressure",
+          feedbackStyle: "direct, critical feedback that points out weaknesses and demands higher standards, similar to a rigorous tech company interview",
+          pace: "faster pace that simulates high-pressure interview environments",
+          followUp: "probing follow-up questions that challenge assumptions and test knowledge boundaries"
+        }
+      };
+
+      const settings = difficultySettings[difficulty as keyof typeof difficultySettings] || difficultySettings.medium;
 
       let baseInstructions = dedent`
         You are a professional AI phone interviewer conducting a technical phone screening. You are interviewing a candidate for the role of ${jobTitle} at ${company}.
+
+        DIFFICULTY LEVEL: ${difficulty.toUpperCase()}
+        
+        Interview Style for ${difficulty} difficulty:
+        - Questions: Use ${settings.questionStyle}
+        - Feedback: Provide ${settings.feedbackStyle}
+        - Pacing: Maintain a ${settings.pace}
+        - Follow-ups: Ask ${settings.followUp}
 
         Your role is to:
         1. Start with a warm, professional greeting and introduce yourself as the AI interviewer
@@ -436,21 +473,23 @@ function tryConnectModel(sessionKey: string) {
         3. Ask if they're ready to begin and if they have any questions before starting
         4. Conduct a comprehensive interview covering:
            - Background and experience relevant to the role
-           - Technical skills and knowledge
+           - Technical skills and knowledge (adjust complexity based on ${difficulty} difficulty)
            - Problem-solving abilities
            - Cultural fit and motivation
            - Questions about their interest in ${company}
-        5. Ask thoughtful follow-up questions based on their responses
-        6. Keep the conversation focused and professional
-        7. The interview should last 10-15 minutes
-        8. Be encouraging but thorough in your evaluation
+        5. Provide feedback during the interview based on the ${difficulty} difficulty level
+        6. Ask thoughtful follow-up questions based on their responses
+        7. Keep the conversation focused and professional
+        8. The interview should last 10-15 minutes
+        9. Be ${difficulty === 'easy' ? 'encouraging and supportive' : difficulty === 'hard' ? 'challenging and rigorous' : 'professional and balanced'} in your evaluation
 
         Interview Guidelines:
-        - Ask open-ended questions that allow the candidate to demonstrate their expertise
+        - Ask questions appropriate for ${difficulty} difficulty level
         - Listen carefully and ask relevant follow-up questions
-        - Maintain a professional but friendly tone
-        - Cover both technical and behavioral aspects
+        - Maintain a tone that matches the ${difficulty} difficulty setting
+        - Cover both technical and behavioral aspects with appropriate depth
         - End with asking if they have any questions for you
+        - Throughout the interview, provide feedback that aligns with the ${difficulty} difficulty level
       `;
 
       // Add specific job description context if available
@@ -460,13 +499,13 @@ function tryConnectModel(sessionKey: string) {
           Job Context:
           ${jobDescription.trim()}
 
-          Use this job description to tailor your questions to the specific requirements and responsibilities mentioned.
+          Use this job description to tailor your questions to the specific requirements and responsibilities mentioned, adjusting the complexity based on the ${difficulty} difficulty level.
         `;
       }
 
       baseInstructions += dedent`
 
-        Begin by greeting the candidate and introducing the purpose of the call. Ask them if they're ready to start the interview, then proceed with your questions. Make this feel like a real, professional interview experience.
+        Begin by greeting the candidate and introducing the purpose of the call. Ask them if they're ready to start the interview, then proceed with your questions at the appropriate ${difficulty} difficulty level. Make this feel like a real, professional interview experience that matches the selected difficulty.
       `;
 
       return baseInstructions;
