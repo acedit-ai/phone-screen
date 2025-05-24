@@ -39,22 +39,31 @@
     "@types/jest": "^29.5.12",
     "@types/supertest": "^6.0.2",
     "jest": "^29.7.0",
-    "nodemon": "^2.0.22",
+    "nodemon": "^3.1.10",
     "supertest": "^6.3.4",
     "ts-jest": "^29.1.2"
   },
   "jest": {
     "preset": "ts-jest",
     "testEnvironment": "node",
-    "roots": ["<rootDir>/src", "<rootDir>/tests"],
-    "testMatch": ["**/__tests__/**/*.ts", "**/?(*.)+(spec|test).ts"],
+    "roots": [
+      "<rootDir>/src",
+      "<rootDir>/tests"
+    ],
+    "testMatch": [
+      "**/__tests__/**/*.ts",
+      "**/?(*.)+(spec|test).ts"
+    ],
     "transform": {
-      "^.+\\.ts$": ["ts-jest", {
-        "tsconfig": {
-          "outDir": "./dist",
-          "rootDir": "."
+      "^.+\\.ts$": [
+        "ts-jest",
+        {
+          "tsconfig": {
+            "outDir": "./dist",
+            "rootDir": "."
+          }
         }
-      }]
+      ]
     },
     "coverageDirectory": "coverage",
     "collectCoverageFrom": [
@@ -62,6 +71,10 @@
       "!src/**/*.d.ts",
       "!src/**/index.ts"
     ],
-    "coverageReporters": ["text", "lcov", "html"]
+    "coverageReporters": [
+      "text",
+      "lcov",
+      "html"
+    ]
   }
 }
