@@ -38,6 +38,21 @@ You need to add the following secrets to your GitHub repository:
 - **Description**: The name of your Vercel project
 - **How to get**: This is the name you see in your Vercel dashboard for the webapp project
 
+### 4. VERCEL_TEAM_ID
+- **Description**: The unique identifier for your Vercel team (required for team projects)
+- **How to get**:
+  1. Go to your Vercel team dashboard
+  2. Go to Settings → General
+  3. Copy the "Team ID" value
+  
+  Alternatively, you can get it via CLI:
+  ```bash
+  npx vercel teams ls
+  # Find your team and note the ID
+  ```
+  
+  **Note**: This is required because your project "phone-screen" belongs to a team (either "ebloom19's projects" or "Acedit") rather than your personal account. Team projects require the `teamId` parameter in API calls.
+
 ## Setting Up GitHub Secrets
 
 1. Go to your GitHub repository
@@ -77,7 +92,15 @@ The environment variables are created with these properties:
 
 - **403 Forbidden**: Usually means the `VERCEL_TOKEN` doesn't have sufficient permissions
 - **404 Not Found**: Usually means the `VERCEL_PROJECT_ID` is incorrect
+- **Project not found**: Usually means you're missing the `VERCEL_TEAM_ID` for team projects
 - **Environment variable not taking effect**: The Vercel redeployment step might have failed
+
+### Team vs Personal Projects
+
+If your project belongs to a team (as indicated by the team sections in your Vercel dashboard), you **must** include the `VERCEL_TEAM_ID` secret. The error "Project not found" occurs when:
+- Your project belongs to a team but you don't provide the `teamId` parameter
+- Your token doesn't have access to the team
+- The team ID is incorrect
 
 ## Testing
 

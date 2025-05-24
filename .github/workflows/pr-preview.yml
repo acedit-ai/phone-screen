@@ -27,8 +27,8 @@ jobs:
           FLY_APP_NAME="pr-${{ github.event.number }}-${{ github.repository_owner }}-${{ github.event.repository.name }}"
           WEBSOCKET_URL="wss://${FLY_APP_NAME}.fly.dev"
           
-          # Update Vercel environment variable for this PR
-          curl -X POST "https://api.vercel.com/v9/projects/${{ secrets.VERCEL_PROJECT_ID }}/env" \
+          # Update Vercel environment variable for this PR (with teamId parameter)
+          curl -X POST "https://api.vercel.com/v9/projects/${{ secrets.VERCEL_PROJECT_ID }}/env?teamId=${{ secrets.VERCEL_TEAM_ID }}" \
             -H "Authorization: Bearer ${{ secrets.VERCEL_TOKEN }}" \
             -H "Content-Type: application/json" \
             -d "{
@@ -44,16 +44,16 @@ jobs:
       - name: Trigger Vercel Redeployment
         if: github.event.action != 'closed'
         run: |
-          # Get the latest deployment for this branch
-          DEPLOYMENT_DATA=$(curl -s "https://api.vercel.com/v6/deployments?projectId=${{ secrets.VERCEL_PROJECT_ID }}&gitSource=${{ github.head_ref }}&limit=1" \
+          # Get the latest deployment for this branch (with teamId parameter)
+          DEPLOYMENT_DATA=$(curl -s "https://api.vercel.com/v6/deployments?projectId=${{ secrets.VERCEL_PROJECT_ID }}&gitSource=${{ github.head_ref }}&limit=1&teamId=${{ secrets.VERCEL_TEAM_ID }}" \
             -H "Authorization: Bearer ${{ secrets.VERCEL_TOKEN }}")
           
           # Extract deployment ID
           DEPLOYMENT_ID=$(echo $DEPLOYMENT_DATA | jq -r '.deployments[0].uid // empty')
           
           if [ ! -z "$DEPLOYMENT_ID" ]; then
-            # Trigger a redeploy to pick up the new environment variable
-            curl -X POST "https://api.vercel.com/v13/deployments" \
+            # Trigger a redeploy to pick up the new environment variable (with teamId parameter)
+            curl -X POST "https://api.vercel.com/v13/deployments?teamId=${{ secrets.VERCEL_TEAM_ID }}" \
               -H "Authorization: Bearer ${{ secrets.VERCEL_TOKEN }}" \
               -H "Content-Type: application/json" \
               -d "{
@@ -75,15 +75,15 @@ jobs:
       - name: Clean up Vercel Environment Variable
         if: github.event.action == 'closed'
         run: |
-          # Get environment variables for the branch
-          ENV_VARS=$(curl -s "https://api.vercel.com/v9/projects/${{ secrets.VERCEL_PROJECT_ID }}/env" \
+          # Get environment variables for the branch (with teamId parameter)
+          ENV_VARS=$(curl -s "https://api.vercel.com/v9/projects/${{ secrets.VERCEL_PROJECT_ID }}/env?teamId=${{ secrets.VERCEL_TEAM_ID }}" \
             -H "Authorization: Bearer ${{ secrets.VERCEL_TOKEN }}")
           
           # Find and delete the environment variable for this branch
           ENV_ID=$(echo $ENV_VARS | jq -r ".envs[] | select(.key == \"NEXT_PUBLIC_WEBSOCKET_SERVER_URL\" and .gitBranch == \"${{ github.head_ref }}\") | .id")
           
           if [ ! -z "$ENV_ID" ]; then
-            curl -X DELETE "https://api.vercel.com/v9/projects/${{ secrets.VERCEL_PROJECT_ID }}/env/$ENV_ID" \
+            curl -X DELETE "https://api.vercel.com/v9/projects/${{ secrets.VERCEL_PROJECT_ID }}/env/$ENV_ID?teamId=${{ secrets.VERCEL_TEAM_ID }}" \
               -H "Authorization: Bearer ${{ secrets.VERCEL_TOKEN }}"
             echo "Cleaned up environment variable for branch ${{ github.head_ref }}"
           fi
