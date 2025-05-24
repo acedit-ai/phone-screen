@@ -197,10 +197,14 @@ wss.on("connection", async (ws: WebSocket, req: IncomingMessage) => {
     if (type === "call") {
       // Check call frequency limit before allowing the connection
       const callCheck = await rateLimitService.checkCallFrequencyLimit(clientIP);
+      let isRateLimited = false;
+      let rateLimitReason = '';
+      
       if (!callCheck.allowed) {
         console.warn(`🚫 Call frequency limit exceeded for ${clientIP}: ${callCheck.reason}`);
-        ws.close(1008, callCheck.reason); // Policy violation close code
-        return;
+        // Instead of immediately closing, allow connection but mark it as rate limited
+        isRateLimited = true;
+        rateLimitReason = callCheck.reason || 'Call frequency limit exceeded';
       }
 
       console.log("📞 Call connection established - starting audio stream");
@@ -211,12 +215,19 @@ wss.on("connection", async (ws: WebSocket, req: IncomingMessage) => {
         company: url.searchParams.get("company") || undefined,
         jobDescription: url.searchParams.get("jobDescription") || undefined,
         voice: url.searchParams.get("voice") || undefined,
+        // Add rate limiting context
+        isRateLimited,
+        rateLimitReason,
       };
 
       if (jobConfig.jobTitle || jobConfig.company) {
         console.log(
           `📋 Job configuration from URL: ${jobConfig.jobTitle} at ${jobConfig.company}`
         );
+      }
+
+      if (isRateLimited) {
+        console.log(`⚠️ Rate limited call allowed to connect for graceful message delivery`);
       }
 
       // Enforce session duration limit
