@@ -335,6 +335,9 @@ export class RateLimitService {
     phoneNumber: string,
     ipAddress?: string
   ): Promise<RateLimitResult> {
+    // Normalize phone number for consistent tracking
+    const normalizedPhoneNumber = this.normalizePhoneNumber(phoneNumber);
+    
     // Skip if phone number rate limiting is disabled
     if (!this.config.phone.enabled) {
       return { allowed: true };
@@ -344,7 +347,7 @@ export class RateLimitService {
     const windowStart = now - this.config.phone.windowMs;
 
     // Get or create phone entry for this number
-    const phoneEntry = this.phoneCache.get<PhoneEntry>(phoneNumber) || {
+    const phoneEntry = this.phoneCache.get<PhoneEntry>(normalizedPhoneNumber) || {
       callTimes: [],
       lastCallTime: 0,
     };
@@ -362,7 +365,7 @@ export class RateLimitService {
         
         if (this.config.monitoring.logViolations) {
           console.warn(
-            `🚫 Phone number ${phoneNumber} is in cooldown period (${Math.ceil(remainingCooldown / 1000)}s remaining)${ipAddress ? ` - IP: ${ipAddress}` : ''}`
+            `🚫 Phone number ${normalizedPhoneNumber} is in cooldown period (${Math.ceil(remainingCooldown / 1000)}s remaining)${ipAddress ? ` - IP: ${ipAddress}` : ''}`
           );
         }
 
@@ -381,7 +384,7 @@ export class RateLimitService {
 
       if (this.config.monitoring.logViolations) {
         console.warn(
-          `🚫 Phone number ${phoneNumber} has exceeded call limit (${this.config.phone.maxCallsPerNumber} calls per ${this.config.phone.windowMs / 60000} minutes)${ipAddress ? ` - IP: ${ipAddress}` : ''}`
+          `🚫 Phone number ${normalizedPhoneNumber} has exceeded call limit (${this.config.phone.maxCallsPerNumber} calls per ${this.config.phone.windowMs / 60000} minutes)${ipAddress ? ` - IP: ${ipAddress}` : ''}`
         );
       }
 
@@ -396,7 +399,7 @@ export class RateLimitService {
     // Allow the call - record it
     phoneEntry.callTimes.push(now);
     phoneEntry.lastCallTime = now;
-    this.phoneCache.set(phoneNumber, phoneEntry);
+    this.phoneCache.set(normalizedPhoneNumber, phoneEntry);
 
     // Calculate remaining calls and reset time
     const remaining = this.config.phone.maxCallsPerNumber - phoneEntry.callTimes.length;
@@ -405,7 +408,7 @@ export class RateLimitService {
 
     if (this.config.monitoring.enableDetailedLogging) {
       console.log(
-        `📞 Phone call allowed to ${phoneNumber} (${remaining} calls remaining)${ipAddress ? ` - IP: ${ipAddress}` : ''}`
+        `📞 Phone call allowed to ${normalizedPhoneNumber} (${remaining} calls remaining)${ipAddress ? ` - IP: ${ipAddress}` : ''}`
       );
     }
 
@@ -414,6 +417,25 @@ export class RateLimitService {
       remaining,
       resetTime: Math.max(0, resetTime),
     };
+  }
+
+  /**
+   * Normalizes phone number to E.164 format for consistent tracking
+   *
+   * @param phoneNumber - Phone number in any format
+   * @returns Normalized phone number in E.164 format
+   */
+  private normalizePhoneNumber(phoneNumber: string): string {
+    // Remove all non-digit characters except leading +
+    const cleaned = phoneNumber.replace(/[^\d+]/g, '');
+    
+    // Ensure E.164 format (starts with +)
+    if (!cleaned.startsWith('+')) {
+      // Assume US number if no country code
+      return `+1${cleaned}`;
+    }
+    
+    return cleaned;
   }
 
   /**
