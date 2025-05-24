@@ -55,14 +55,19 @@ RATE_LIMIT_WINDOW_MS=900000          # 15 minutes in milliseconds
 RATE_LIMIT_MAX_REQUESTS=30           # Max general requests per window
 
 # Maximum calls per window per IP  
-RATE_LIMIT_MAX_CALLS=3               # Max calls per window
+RATE_LIMIT_MAX_CALLS=2               # Max calls per window (reduced from 3)
 
 # Global concurrent call limit (across all users)
 RATE_LIMIT_MAX_CONCURRENT_CALLS=10   # Max simultaneous active calls
 
 # Session and suspension durations
-RATE_LIMIT_SESSION_DURATION=600000   # 10 minutes per session in milliseconds
+RATE_LIMIT_SESSION_DURATION=300000   # 5 minutes per session in milliseconds (reduced from 10 minutes)
 RATE_LIMIT_SUSPENSION_DURATION=3600000 # 1 hour suspension in milliseconds
+
+# Phone number rate limiting (NEW)
+RATE_LIMIT_PHONE_MAX_CALLS=2         # Max calls per phone number per window
+RATE_LIMIT_PHONE_WINDOW_MS=3600000   # Phone number rate limit window (1 hour)
+RATE_LIMIT_PHONE_COOLDOWN_MS=1800000 # Cooldown between calls for same number (30 minutes)
 ```
 
 ### Rate Limiting Defaults
@@ -73,10 +78,13 @@ If environment variables are not set, these defaults will be used:
 |----------|---------------|-------------|
 | `RATE_LIMIT_WINDOW_MS` | 900000 (15 min) | Time window for rate limiting |
 | `RATE_LIMIT_MAX_REQUESTS` | 30 | Max API requests per window per IP |
-| `RATE_LIMIT_MAX_CALLS` | 3 | Max calls per window per IP |
+| `RATE_LIMIT_MAX_CALLS` | 2 | Max calls per window per IP (reduced from 3) |
 | `RATE_LIMIT_MAX_CONCURRENT_CALLS` | 10 | Global concurrent call limit |
-| `RATE_LIMIT_SESSION_DURATION` | 600000 (10 min) | Max session duration |
+| `RATE_LIMIT_SESSION_DURATION` | 300000 (5 min) | Max session duration (reduced from 10 min) |
 | `RATE_LIMIT_SUSPENSION_DURATION` | 3600000 (1 hour) | Suspension duration |
+| `RATE_LIMIT_PHONE_MAX_CALLS` | 2 | Max calls per phone number per window |
+| `RATE_LIMIT_PHONE_WINDOW_MS` | 3600000 (1 hour) | Phone number rate limit window |
+| `RATE_LIMIT_PHONE_COOLDOWN_MS` | 1800000 (30 min) | Cooldown between calls for same number |
 
 ### Rate Limiting Features
 
@@ -84,8 +92,9 @@ The system provides multiple layers of protection:
 
 - **Per-IP connection limits**: Max 2 concurrent WebSocket connections per IP
 - **Call frequency limits**: Configurable calls per hour per IP address
+- **Phone number rate limiting**: Max 2 calls per phone number with cooldown periods
 - **Global concurrent call limit**: Configurable simultaneous active calls
-- **Session duration limits**: Configurable maximum call duration
+- **Session duration limits**: Configurable maximum call duration (5 minutes default)
 - **Progressive penalties**: Automatic suspension for repeat offenders
 - **IP-based tracking**: Prevents abuse from specific sources
 
@@ -110,9 +119,14 @@ TWILIO_PHONE_NUMBER_AU=+61234567890
 TWILIO_PHONE_NUMBER_IN=+91234567890
 
 # Rate limiting (optional - more permissive for development)
-RATE_LIMIT_MAX_CALLS=10
+RATE_LIMIT_MAX_CALLS=2
 RATE_LIMIT_MAX_CONCURRENT_CALLS=5
-RATE_LIMIT_SESSION_DURATION=1200000    # 20 minutes for development
+RATE_LIMIT_SESSION_DURATION=600000    # 10 minutes for development
+
+# Phone number rate limiting (for development testing)
+RATE_LIMIT_PHONE_MAX_CALLS=3          # More permissive for development
+RATE_LIMIT_PHONE_WINDOW_MS=3600000    # 1 hour window
+RATE_LIMIT_PHONE_COOLDOWN_MS=900000   # 15 minutes cooldown for development
 ```
 
 ### Production Configuration (`.env`)
@@ -134,12 +148,15 @@ TWILIO_PHONE_NUMBER_AU=+61234567890
 TWILIO_PHONE_NUMBER_IN=+91234567890
 
 # Rate limiting (restrictive for production)
-RATE_LIMIT_WINDOW_MS=900000            # 15 minutes
-RATE_LIMIT_MAX_REQUESTS=30             # Conservative request limit
-RATE_LIMIT_MAX_CALLS=3                 # Conservative call limit
+RATE_LIMIT_MAX_CALLS=2                 # Conservative call limit (reduced from 3)
 RATE_LIMIT_MAX_CONCURRENT_CALLS=10     # Global limit
-RATE_LIMIT_SESSION_DURATION=600000     # 10 minutes max session
+RATE_LIMIT_SESSION_DURATION=300000     # 5 minutes max session (reduced from 10)
 RATE_LIMIT_SUSPENSION_DURATION=3600000 # 1 hour suspension
+
+# Phone number rate limiting (restrictive for production)
+RATE_LIMIT_PHONE_MAX_CALLS=2           # Strict limit per phone number
+RATE_LIMIT_PHONE_WINDOW_MS=3600000     # 1 hour window
+RATE_LIMIT_PHONE_COOLDOWN_MS=1800000   # 30 minutes cooldown between calls
 ```
 
 ### High-Traffic Production Configuration

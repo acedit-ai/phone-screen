@@ -189,20 +189,59 @@ export function createCallRateLimitMiddleware(
         return;
       }
 
-      // Apply progressive delay if needed
-      if (result.delay && result.delay > 0) {
-        if (config.monitoring.enableDetailedLogging) {
-          console.log(`⏱️  Applying ${result.delay}ms delay for IP: ${ip}`);
-        }
+      // Check phone number rate limits if phone number is provided
+      let phoneResult: any = { allowed: true };
+      try {
+        const body = req.body;
+        if (body && body.phoneNumber && config.phone.enabled) {
+          phoneResult = await rateLimitService.checkPhoneNumberLimit(
+            body.phoneNumber,
+            ip
+          );
 
-        await new Promise((resolve) => setTimeout(resolve, result.delay));
+          if (!phoneResult.allowed) {
+            if (config.monitoring.logViolations) {
+              console.warn(
+                `🚫 Phone number rate limit exceeded for ${body.phoneNumber} from IP: ${ip} - ${phoneResult.reason}`
+              );
+            }
+
+            res.status(429).json({
+              error: "Phone number rate limit exceeded",
+              message: phoneResult.reason,
+              retryAfter: phoneResult.resetTime
+                ? Math.ceil(phoneResult.resetTime / 1000)
+                : undefined,
+              type: "phone_rate_limit_exceeded",
+            });
+            return;
+          }
+        }
+      } catch (phoneError) {
+        // Log phone rate limiting errors but don't block the request
+        console.error("Error checking phone number rate limit:", phoneError);
       }
 
-      // Add rate limiting info to request
+      // Apply progressive delay if needed (combine IP and phone delays)
+      const totalDelay = (result.delay || 0) + (phoneResult.delay || 0);
+      if (totalDelay > 0) {
+        if (config.monitoring.enableDetailedLogging) {
+          console.log(`⏱️  Applying ${totalDelay}ms delay for IP: ${ip}`);
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, totalDelay));
+      }
+
+      // Add rate limiting info to request (use the more restrictive remaining count)
       const resetTime = result.resetTime || (Date.now() + config.api.windowMs);
+      const remaining = Math.min(
+        result.remaining || 0,
+        phoneResult.remaining !== undefined ? phoneResult.remaining : Infinity
+      );
+      
       (req as RateLimitedRequest).rateLimit = {
         limit: config.api.maxCalls,
-        remaining: result.remaining || 0,
+        remaining: remaining,
         reset: new Date(resetTime),
       };
 
@@ -255,6 +294,11 @@ export function addRateLimitHeaders(config: RateLimitConfig) {
       "X-Call-Limit-Policy": `${config.api.maxCalls} calls per ${Math.ceil(
         config.api.windowMs / 60000
       )} minutes`,
+      "X-Phone-Limit-Policy": config.phone.enabled 
+        ? `${config.phone.maxCallsPerNumber} calls per phone number per ${Math.ceil(
+            config.phone.windowMs / 60000
+          )} minutes, ${Math.ceil(config.phone.cooldownMs / 60000)} minute cooldown`
+        : "disabled",
     });
 
     next();
