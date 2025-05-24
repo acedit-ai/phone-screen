@@ -10,14 +10,14 @@ import {
   Region,
 } from "@/lib/regions";
 
-// Rate limiting imports
+// Persistent rate limiting imports
 import {
-  applyRateLimit,
-  RATE_LIMIT_CONFIGS,
-  getRateLimitHeaders,
-  createRateLimitErrorResponse,
+  persistentRateLimit,
+  persistentPhoneRateLimit,
+  PERSISTENT_RATE_LIMIT_CONFIGS,
+  getPersistentRateLimitHeaders,
   getClientIP,
-} from "@/lib/rateLimiting";
+} from "@/lib/persistentRateLimiting";
 
 // Extend region with server-side phone number
 interface ServerRegion extends Region {
@@ -88,38 +88,29 @@ export async function POST(request: NextRequest) {
   const clientIP = getClientIP(request);
   
   try {
-    // Apply rate limiting for call endpoints
-    const rateLimitResult = await applyRateLimit(
+    // Apply persistent rate limiting for call endpoints (IP-based)
+    const ipRateLimitResult = await persistentRateLimit(
       request, 
-      RATE_LIMIT_CONFIGS.calls, 
+      PERSISTENT_RATE_LIMIT_CONFIGS.calls, 
       'outbound_call'
     );
 
-    if (!rateLimitResult.success) {
-      console.warn(`🚫 Outbound call rate limit exceeded for IP: ${clientIP}`);
+    if (!ipRateLimitResult.success) {
+      console.warn(`🚫 Outbound call IP rate limit exceeded for IP: ${clientIP}`);
       
       return NextResponse.json(
-        createRateLimitErrorResponse(rateLimitResult, RATE_LIMIT_CONFIGS.calls),
+        { 
+          error: ipRateLimitResult.error,
+          type: 'ip_rate_limit'
+        },
         { 
           status: 429,
-          headers: getRateLimitHeaders(rateLimitResult, RATE_LIMIT_CONFIGS.calls)
+          headers: getPersistentRateLimitHeaders(ipRateLimitResult, PERSISTENT_RATE_LIMIT_CONFIGS.calls)
         }
       );
     }
 
-    console.log(`📞 Outbound call request from ${clientIP} (${rateLimitResult.remaining} calls remaining)`);
-
-    // Validate Twilio configuration
-    if (!accountSid || !authToken) {
-      return NextResponse.json(
-        { error: "Twilio configuration missing" },
-        { 
-          status: 500,
-          headers: getRateLimitHeaders(rateLimitResult, RATE_LIMIT_CONFIGS.calls)
-        }
-      );
-    }
-
+    // Parse request body to get phone number for phone-specific rate limiting
     const { phoneNumber, jobConfiguration } = await request.json();
 
     if (!phoneNumber) {
@@ -127,7 +118,47 @@ export async function POST(request: NextRequest) {
         { error: "Phone number is required" },
         { 
           status: 400,
-          headers: getRateLimitHeaders(rateLimitResult, RATE_LIMIT_CONFIGS.calls)
+          headers: getPersistentRateLimitHeaders(ipRateLimitResult, PERSISTENT_RATE_LIMIT_CONFIGS.calls)
+        }
+      );
+    }
+
+    // Apply persistent rate limiting for phone numbers
+    const phoneRateLimitResult = await persistentPhoneRateLimit(
+      phoneNumber,
+      request
+    );
+
+    if (!phoneRateLimitResult.success) {
+      console.warn(`🚫 Phone number rate limit exceeded for ${phoneNumber}`);
+      
+      return NextResponse.json(
+        { 
+          error: phoneRateLimitResult.error,
+          type: 'phone_rate_limit',
+          phoneNumber: phoneNumber
+        },
+        { 
+          status: 429,
+          headers: {
+            ...getPersistentRateLimitHeaders(ipRateLimitResult, PERSISTENT_RATE_LIMIT_CONFIGS.calls),
+            'X-Phone-RateLimit-Limit': PERSISTENT_RATE_LIMIT_CONFIGS.phone.maxCalls?.toString() || '2',
+            'X-Phone-RateLimit-Remaining': phoneRateLimitResult.remaining.toString(),
+            'X-Phone-RateLimit-Reset': Math.ceil(phoneRateLimitResult.resetTime / 1000).toString(),
+          }
+        }
+      );
+    }
+
+    console.log(`📞 Outbound call request from ${clientIP} to ${phoneNumber} (IP: ${ipRateLimitResult.remaining} calls remaining, Phone: ${phoneRateLimitResult.remaining} calls remaining)`);
+
+    // Validate Twilio configuration
+    if (!accountSid || !authToken) {
+      return NextResponse.json(
+        { error: "Twilio configuration missing" },
+        { 
+          status: 500,
+          headers: getPersistentRateLimitHeaders(ipRateLimitResult, PERSISTENT_RATE_LIMIT_CONFIGS.calls)
         }
       );
     }
@@ -138,7 +169,7 @@ export async function POST(request: NextRequest) {
         { error: "Invalid phone number format" },
         { 
           status: 400,
-          headers: getRateLimitHeaders(rateLimitResult, RATE_LIMIT_CONFIGS.calls)
+          headers: getPersistentRateLimitHeaders(ipRateLimitResult, PERSISTENT_RATE_LIMIT_CONFIGS.calls)
         }
       );
     }
@@ -158,7 +189,7 @@ export async function POST(request: NextRequest) {
         },
         { 
           status: 400,
-          headers: getRateLimitHeaders(rateLimitResult, RATE_LIMIT_CONFIGS.calls)
+          headers: getPersistentRateLimitHeaders(ipRateLimitResult, PERSISTENT_RATE_LIMIT_CONFIGS.calls)
         }
       );
     }
@@ -175,7 +206,7 @@ export async function POST(request: NextRequest) {
         },
         { 
           status: 400,
-          headers: getRateLimitHeaders(rateLimitResult, RATE_LIMIT_CONFIGS.calls)
+          headers: getPersistentRateLimitHeaders(ipRateLimitResult, PERSISTENT_RATE_LIMIT_CONFIGS.calls)
         }
       );
     }
@@ -226,7 +257,10 @@ export async function POST(request: NextRequest) {
       region: region.name,
       fromNumber: fromPhoneNumber,
     }, {
-      headers: getRateLimitHeaders(rateLimitResult, RATE_LIMIT_CONFIGS.calls)
+      headers: {
+        ...getPersistentRateLimitHeaders(ipRateLimitResult, PERSISTENT_RATE_LIMIT_CONFIGS.calls),
+        'X-Phone-RateLimit-Remaining': phoneRateLimitResult.remaining.toString(),
+      }
     });
   } catch (error: any) {
     console.error(`Error making outbound call for IP ${clientIP}:`, error);
