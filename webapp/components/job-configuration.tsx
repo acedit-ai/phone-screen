@@ -109,13 +109,13 @@ const JobConfiguration: React.FC<JobConfigurationProps> = ({
               <SelectValue placeholder="Select interviewer voice" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="ash">Ash - Professional & Clear</SelectItem>
-              <SelectItem value="ballad">Ballad - Warm & Friendly</SelectItem>
+              <SelectItem value="ash">Ashley - Professional & Clear</SelectItem>
+              <SelectItem value="ballad">Blake - Warm & Friendly</SelectItem>
               <SelectItem value="coral">
                 Coral - Energetic & Confident
               </SelectItem>
               <SelectItem value="sage">Sage - Calm & Thoughtful</SelectItem>
-              <SelectItem value="verse">Verse - Dynamic & Engaging</SelectItem>
+              <SelectItem value="verse">Victoria - Dynamic & Engaging</SelectItem>
             </SelectContent>
           </Select>
         </div>
