@@ -9,7 +9,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
+      
       - name: Deploy Preview App
+        id: fly-deploy
         uses: superfly/fly-pr-review-apps@1.2.1
         with:
           name: pr-${{ github.event.number }}-${{ github.repository_owner }}-${{ github.event.repository.name }}
@@ -17,3 +19,71 @@ jobs:
           org: ${{ secrets.FLY_ORG }}
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+
+      - name: Update Vercel Environment Variable
+        if: github.event.action != 'closed'
+        run: |
+          # Calculate the fly.io app URL
+          FLY_APP_NAME="pr-${{ github.event.number }}-${{ github.repository_owner }}-${{ github.event.repository.name }}"
+          WEBSOCKET_URL="wss://${FLY_APP_NAME}.fly.dev"
+          
+          # Update Vercel environment variable for this PR
+          curl -X POST "https://api.vercel.com/v9/projects/${{ secrets.VERCEL_PROJECT_ID }}/env" \
+            -H "Authorization: Bearer ${{ secrets.VERCEL_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"key\": \"NEXT_PUBLIC_WEBSOCKET_SERVER_URL\",
+              \"value\": \"${WEBSOCKET_URL}\",
+              \"type\": \"encrypted\",
+              \"target\": [\"preview\"],
+              \"gitBranch\": \"${{ github.head_ref }}\"
+            }"
+          
+          echo "Set NEXT_PUBLIC_WEBSOCKET_SERVER_URL to: ${WEBSOCKET_URL}"
+
+      - name: Trigger Vercel Redeployment
+        if: github.event.action != 'closed'
+        run: |
+          # Get the latest deployment for this branch
+          DEPLOYMENT_DATA=$(curl -s "https://api.vercel.com/v6/deployments?projectId=${{ secrets.VERCEL_PROJECT_ID }}&gitSource=${{ github.head_ref }}&limit=1" \
+            -H "Authorization: Bearer ${{ secrets.VERCEL_TOKEN }}")
+          
+          # Extract deployment ID
+          DEPLOYMENT_ID=$(echo $DEPLOYMENT_DATA | jq -r '.deployments[0].uid // empty')
+          
+          if [ ! -z "$DEPLOYMENT_ID" ]; then
+            # Trigger a redeploy to pick up the new environment variable
+            curl -X POST "https://api.vercel.com/v13/deployments" \
+              -H "Authorization: Bearer ${{ secrets.VERCEL_TOKEN }}" \
+              -H "Content-Type: application/json" \
+              -d "{
+                \"name\": \"${{ secrets.VERCEL_PROJECT_NAME }}\",
+                \"gitSource\": {
+                  \"type\": \"github\",
+                  \"ref\": \"${{ github.head_ref }}\",
+                  \"repoId\": ${{ github.repository_id }}
+                },
+                \"projectSettings\": {
+                  \"framework\": \"nextjs\"
+                }
+              }"
+            echo "Triggered Vercel redeployment for branch ${{ github.head_ref }}"
+          else
+            echo "No existing Vercel deployment found for branch ${{ github.head_ref }}"
+          fi
+
+      - name: Clean up Vercel Environment Variable
+        if: github.event.action == 'closed'
+        run: |
+          # Get environment variables for the branch
+          ENV_VARS=$(curl -s "https://api.vercel.com/v9/projects/${{ secrets.VERCEL_PROJECT_ID }}/env" \
+            -H "Authorization: Bearer ${{ secrets.VERCEL_TOKEN }}")
+          
+          # Find and delete the environment variable for this branch
+          ENV_ID=$(echo $ENV_VARS | jq -r ".envs[] | select(.key == \"NEXT_PUBLIC_WEBSOCKET_SERVER_URL\" and .gitBranch == \"${{ github.head_ref }}\") | .id")
+          
+          if [ ! -z "$ENV_ID" ]; then
+            curl -X DELETE "https://api.vercel.com/v9/projects/${{ secrets.VERCEL_PROJECT_ID }}/env/$ENV_ID" \
+              -H "Authorization: Bearer ${{ secrets.VERCEL_TOKEN }}"
+            echo "Cleaned up environment variable for branch ${{ github.head_ref }}"
+          fi
