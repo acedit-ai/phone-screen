@@ -18,6 +18,9 @@ interface Session {
   company?: string;
   jobDescription?: string;
   voice?: string;
+  // Rate limiting context
+  isRateLimited?: boolean;
+  rateLimitReason?: string;
 }
 
 // Map to store multiple sessions, keyed by streamSid (or temporary ID)
@@ -69,6 +72,8 @@ export function handleCallConnection(
     company?: string;
     jobDescription?: string;
     voice?: string;
+    isRateLimited?: boolean;
+    rateLimitReason?: string;
   }
 ) {
   console.log("🎤 Setting up call connection with OpenAI Realtime API");
@@ -84,6 +89,9 @@ export function handleCallConnection(
     company: jobConfig?.company,
     jobDescription: jobConfig?.jobDescription,
     voice: jobConfig?.voice,
+    // Set rate limiting context
+    isRateLimited: jobConfig?.isRateLimited,
+    rateLimitReason: jobConfig?.rateLimitReason,
   };
 
   sessions.set(sessionId, session);
@@ -423,6 +431,24 @@ function tryConnectModel(sessionKey: string) {
 
     // Generate dynamic interview instructions based on job configuration
     const generateInterviewInstructions = () => {
+      // Check if this is a rate-limited call
+      if (session.isRateLimited) {
+        return dedent`
+          You are a professional AI assistant for a phone screening service. The caller has reached their free call limit.
+
+          Your task is to:
+          1. Politely greet the caller
+          2. Inform them that they have reached their free call limit for the day/hour
+          3. Explain that this is to ensure fair usage of the service
+          4. Suggest they try again later when their limit resets
+          5. Thank them for their interest and politely end the call
+
+          Keep the message brief, professional, and friendly. End the call after delivering this message.
+
+          Example message: "Hello! Thank you for calling our interview screening service. I need to let you know that you've reached your free call limit. This helps us ensure fair access for all users.  Thank you for your understanding, and have a great day!"
+        `;
+      }
+
       const jobTitle = session.jobTitle || "this position";
       const company = session.company || "the company";
       const jobDescription = session.jobDescription || "";
@@ -491,21 +517,48 @@ function tryConnectModel(sessionKey: string) {
     // Send an initial greeting to start the conversation
     setTimeout(() => {
       if (isOpen(session.modelConn)) {
-        console.log("🎤 Sending initial greeting to start interview");
-        jsonSend(session.modelConn, {
-          type: "conversation.item.create",
-          item: {
-            type: "message",
-            role: "user",
-            content: [
-              {
-                type: "input_text",
-                text: "Hello, I just answered the phone. Please start the interview.",
-              },
-            ],
-          },
-        });
+        if (session.isRateLimited) {
+          console.log("🚫 Sending rate limit message and preparing to end call");
+          jsonSend(session.modelConn, {
+            type: "conversation.item.create",
+            item: {
+              type: "message",
+              role: "user",
+              content: [
+                {
+                  type: "input_text",
+                  text: "Hello, I just answered the phone. Please deliver the rate limit message and end the call politely.",
+                },
+              ],
+            },
+          });
+        } else {
+          console.log("🎤 Sending initial greeting to start interview");
+          jsonSend(session.modelConn, {
+            type: "conversation.item.create",
+            item: {
+              type: "message",
+              role: "user",
+              content: [
+                {
+                  type: "input_text",
+                  text: "Hello, I just answered the phone. Please start the interview.",
+                },
+              ],
+            },
+          });
+        }
         jsonSend(session.modelConn, { type: "response.create" });
+        
+        // For rate-limited calls, automatically hang up after delivering the message
+        if (session.isRateLimited) {
+          setTimeout(() => {
+            console.log("🚫 Auto-hanging up rate-limited call after message delivery");
+            if (session.twilioConn) {
+              session.twilioConn.close(1000, 'Rate limit message delivered');
+            }
+          }, 15000); // Give 15 seconds for the message to be delivered
+        }
       }
     }, 1000); // Wait 1 second after connection to ensure everything is set up
   });
