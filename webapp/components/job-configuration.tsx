@@ -10,17 +10,19 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Building2, Briefcase, FileText, Mic } from "lucide-react";
+import { Building2, Briefcase, FileText, Mic, Target } from "lucide-react";
 
 interface JobConfigurationProps {
   jobTitle: string;
   company: string;
   jobDescription: string;
   voice: string;
+  difficulty: string;
   onJobTitleChange: (title: string) => void;
   onCompanyChange: (company: string) => void;
   onJobDescriptionChange: (description: string) => void;
   onVoiceChange: (voice: string) => void;
+  onDifficultyChange: (difficulty: string) => void;
 }
 
 const JobConfiguration: React.FC<JobConfigurationProps> = ({
@@ -28,10 +30,12 @@ const JobConfiguration: React.FC<JobConfigurationProps> = ({
   company,
   jobDescription,
   voice,
+  difficulty,
   onJobTitleChange,
   onCompanyChange,
   onJobDescriptionChange,
   onVoiceChange,
+  onDifficultyChange,
 }) => {
   return (
     <Card className="w-full max-w-2xl mx-auto">
@@ -120,6 +124,26 @@ const JobConfiguration: React.FC<JobConfigurationProps> = ({
           </Select>
         </div>
 
+        <div className="space-y-2">
+          <Label
+            htmlFor="difficulty"
+            className="text-sm font-medium text-gray-700 flex items-center gap-2"
+          >
+            <Target className="w-4 h-4 text-purple-600" />
+            Interview Difficulty
+          </Label>
+          <Select value={difficulty} onValueChange={onDifficultyChange}>
+            <SelectTrigger className="w-full">
+              <SelectValue placeholder="Select interview difficulty" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="easy">Easy - Friendly & Supportive</SelectItem>
+              <SelectItem value="medium">Medium - Professional & Balanced</SelectItem>
+              <SelectItem value="hard">Hard - Challenging & Critical</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
         <div className="bg-purple-50 border border-purple-200 rounded-lg p-4 mt-6">
           <div className="flex items-start gap-3">
             <div className="flex-shrink-0 w-6 h-6 bg-purple-600 rounded-full flex items-center justify-center mt-0.5">
@@ -133,6 +157,7 @@ const JobConfiguration: React.FC<JobConfigurationProps> = ({
                 </li>
                 <li>Mention years of experience needed</li>
                 <li>Add company culture or values for better context</li>
+                <li>Choose difficulty based on your experience level and goals</li>
               </ul>
 
               <div className="mt-3 pt-3 border-t border-purple-200">
