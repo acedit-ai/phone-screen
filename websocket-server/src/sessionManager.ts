@@ -64,6 +64,25 @@ function findWaitingFrontendConnection(): WebSocket | undefined {
   return undefined;
 }
 
+// Helper function to convert voice names to proper interviewer names
+function getInterviewerName(voice?: string): string {
+  if (!voice) return "Ashley"; // Default fallback
+  
+  // Capitalize first letter and use as name
+  const capitalizedVoice = voice.charAt(0).toUpperCase() + voice.slice(1);
+  
+  // Map voice names to professional interviewer names
+  const nameMap: { [key: string]: string } = {
+    'Ash': 'Ashley',
+    'Ballad': 'Blake',
+    'Coral': 'Coral',
+    'Sage': 'Sage',
+    'Verse': 'Victoria'
+  };
+  
+  return nameMap[capitalizedVoice] || capitalizedVoice;
+}
+
 export function handleCallConnection(
   ws: WebSocket,
   openAIApiKey: string,
@@ -438,6 +457,36 @@ function handleFrontendMessageForSession(msg: any, session: Session) {
     return;
   }
 
+  // Handle call end request from frontend
+  if (msg.type === "call.end") {
+    console.log(
+      `📞 Received call end request from frontend for session ${
+        session.streamSid || session.id
+      }`
+    );
+    
+    // Force close the Twilio connection which will trigger the call to end
+    if (session.twilioConn && isOpen(session.twilioConn)) {
+      console.log("🔌 Forcing Twilio connection close from frontend request");
+      session.twilioConn.close(1000, 'Call ended by user');
+    }
+    
+    // Immediately notify frontend that call is ending
+    if (session.frontendConn && isOpen(session.frontendConn)) {
+      const endMessage = {
+        type: "call.status_changed",
+        status: "ended",
+        sessionId: session.id,
+        streamSid: session.streamSid,
+        reason: "user_ended"
+      };
+      console.log("📤 Notifying frontend of user-initiated call end:", endMessage);
+      jsonSend(session.frontendConn, endMessage);
+    }
+    
+    return;
+  }
+
   if (isOpen(session.modelConn)) {
     jsonSend(session.modelConn, msg);
   }
@@ -499,24 +548,24 @@ function tryConnectModel(sessionKey: string) {
       const jobTitle = session.jobTitle || "this position";
       const company = session.company || "the company";
       const jobDescription = session.jobDescription || "";
+      const interviewerName = getInterviewerName(session.voice);
 
       let baseInstructions = dedent`
-        You are a professional AI phone interviewer conducting a technical phone screening. You are interviewing a candidate for the role of ${jobTitle} at ${company}.
+        You are ${interviewerName}, a professional AI phone interviewer conducting a technical phone screening. You are interviewing a candidate for the role of ${jobTitle} at ${company}.
 
         Your role is to:
-        1. Start with a warm, professional greeting and introduce yourself as the AI interviewer
-        2. Briefly explain that this is a phone screening for the ${jobTitle} position at ${company}
-        3. Ask if they're ready to begin and if they have any questions before starting
-        4. Conduct a comprehensive interview covering:
+        1. Start with a warm, professional greeting and introduce yourself by name: "Hello! Thank you for taking the time to speak with me today. My name is ${interviewerName}, and I'm conducting this phone screening for the ${jobTitle} position at ${company}."
+        2. Ask if they're ready to begin and if they have any questions before starting
+        3. Conduct a comprehensive interview covering:
            - Background and experience relevant to the role
            - Technical skills and knowledge
            - Problem-solving abilities
            - Cultural fit and motivation
            - Questions about their interest in ${company}
-        5. Ask thoughtful follow-up questions based on their responses
-        6. Keep the conversation focused and professional
-        7. The interview should last 10-15 minutes
-        8. Be encouraging but thorough in your evaluation
+        4. Ask thoughtful follow-up questions based on their responses
+        5. Keep the conversation focused and professional
+        6. The interview should last 10-15 minutes
+        7. Be encouraging but thorough in your evaluation
 
         Interview Guidelines:
         - Ask open-ended questions that allow the candidate to demonstrate their expertise
@@ -524,6 +573,8 @@ function tryConnectModel(sessionKey: string) {
         - Maintain a professional but friendly tone
         - Cover both technical and behavioral aspects
         - End with asking if they have any questions for you
+
+        Remember: You are ${interviewerName}. Always refer to yourself by this name when introducing yourself or when the candidate asks who they're speaking with.
       `;
 
       // Add specific job description context if available
@@ -539,7 +590,7 @@ function tryConnectModel(sessionKey: string) {
 
       baseInstructions += dedent`
 
-        Begin by greeting the candidate and introducing the purpose of the call. Ask them if they're ready to start the interview, then proceed with your questions. Make this feel like a real, professional interview experience.
+        Begin by greeting the candidate and introducing yourself as ${interviewerName}, then explain the purpose of the call. Ask them if they're ready to start the interview, then proceed with your questions. Make this feel like a real, professional interview experience.
       `;
 
       return baseInstructions;

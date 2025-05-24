@@ -249,20 +249,52 @@ const CallInterface = () => {
           timerRef.current = null;
         }
 
-        // In a real app, you'd make an API call to end the call
-        // await fetch(`/api/call/${currentCallSid}/end`, { method: 'POST' });
+        console.log(`🔌 Ending call with SID: ${currentCallSid}`);
 
+        // Send call end message through WebSocket for immediate session cleanup
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          const endMessage = {
+            type: "call.end",
+            callSid: currentCallSid,
+            timestamp: new Date().toISOString()
+          };
+          console.log("📤 Sending call end message through WebSocket:", endMessage);
+          ws.send(JSON.stringify(endMessage));
+        }
+
+        // Make API call to end the call via Twilio
+        const response = await makeVerifiedPost("/api/call/end", {
+          callSid: currentCallSid,
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+          console.log("✅ Call ended successfully via API");
+        } else {
+          console.error("❌ Failed to end call via API:", data.error);
+          // Continue with cleanup even if API call failed
+        }
+
+        // Close WebSocket connection
         if (ws) {
           ws.close();
           setWs(null);
         }
 
+        // Update UI state
         setCallStatus("ended");
         setCurrentCallSid(null);
 
-        // Remove duplicate timer - useEffect handles the reset
       } catch (error) {
         console.error("Error ending call:", error);
+        // Even if there's an error, still update the UI state
+        if (ws) {
+          ws.close();
+          setWs(null);
+        }
+        setCallStatus("ended");
+        setCurrentCallSid(null);
       }
     }
   };
