@@ -86,6 +86,7 @@ app.get("/metrics", (req, res) => {
       maxConnectionsPerIP: rateLimitConfig.websocket.maxConnectionsPerIP,
       maxCallsPerHour: rateLimitConfig.websocket.maxCallsPerHour,
       maxGlobalConcurrentCalls: rateLimitConfig.websocket.maxGlobalConcurrentCalls,
+      maxGlobalConcurrentConnections: rateLimitConfig.websocket.maxGlobalConcurrentConnections,
     }
   });
 });
@@ -194,6 +195,14 @@ wss.on("connection", async (ws: WebSocket, req: IncomingMessage) => {
     ws.on('error', handleClose);
 
     if (type === "call") {
+      // Check call frequency limit before allowing the connection
+      const callCheck = await rateLimitService.checkCallFrequencyLimit(clientIP);
+      if (!callCheck.allowed) {
+        console.warn(`🚫 Call frequency limit exceeded for ${clientIP}: ${callCheck.reason}`);
+        ws.close(1008, callCheck.reason); // Policy violation close code
+        return;
+      }
+
       console.log("📞 Call connection established - starting audio stream");
 
       // Extract job configuration from URL parameters

@@ -110,7 +110,7 @@ export function createApiRateLimitMiddleware(config: RateLimitConfig) {
     // Skip rate limiting for certain conditions
     skip: (req: Request) => {
       // Skip rate limiting for health checks or monitoring endpoints
-      return req.path === "/health" || req.path === "/metrics";
+      return ["/health", "/metrics"].some((p) => req.path.startsWith(p));
     },
   });
 }
@@ -140,7 +140,7 @@ export function createProgressiveSlowdownMiddleware(config: RateLimitConfig) {
     keyGenerator: (req: Request) => getClientIP(req, config.api.trustProxy),
 
     // Skip for the same conditions as rate limiting
-    skip: (req: Request) => req.path === "/health" || req.path === "/metrics",
+    skip: (req: Request) => ["/health", "/metrics"].some((p) => req.path.startsWith(p)),
   });
 }
 

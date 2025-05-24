@@ -39,6 +39,8 @@ export interface WebSocketRateLimitConfig {
   maxCallsPerHour: number;
   /** Global limit of concurrent active calls across all users */
   maxGlobalConcurrentCalls: number;
+  /** Global limit of concurrent WebSocket connections across all users */
+  maxGlobalConcurrentConnections: number;
   /** Maximum duration for a single call session in milliseconds */
   maxSessionDuration: number;
   /** Time window for call frequency limiting in milliseconds */
@@ -105,6 +107,7 @@ export const DEFAULT_RATE_LIMIT_CONFIG: RateLimitConfig = {
     maxConnectionsPerIP: 2, // 2 concurrent connections per IP
     maxCallsPerHour: 5, // 5 calls per hour per IP
     maxGlobalConcurrentCalls: 10, // 10 total concurrent calls
+    maxGlobalConcurrentConnections: 10, // 10 total concurrent connections
     maxSessionDuration: 10 * 60 * 1000, // 10 minutes per session
     callFrequencyWindow: 60 * 60 * 1000, // 1 hour window
   },
@@ -132,6 +135,7 @@ export const DEFAULT_RATE_LIMIT_CONFIG: RateLimitConfig = {
  * - RATE_LIMIT_MAX_REQUESTS: Max requests per window
  * - RATE_LIMIT_MAX_CALLS: Max calls per window
  * - RATE_LIMIT_MAX_CONCURRENT_CALLS: Global concurrent call limit
+ * - RATE_LIMIT_MAX_CONCURRENT_CONNECTIONS: Global concurrent connection limit
  * - RATE_LIMIT_SESSION_DURATION: Max session duration in milliseconds
  * - RATE_LIMIT_SUSPENSION_DURATION: Penalty suspension duration
  * 
@@ -156,6 +160,13 @@ export function createRateLimitConfig(): RateLimitConfig {
   if (process.env.RATE_LIMIT_MAX_CONCURRENT_CALLS) {
     config.websocket.maxGlobalConcurrentCalls = parseInt(
       process.env.RATE_LIMIT_MAX_CONCURRENT_CALLS,
+      10
+    );
+  }
+
+  if (process.env.RATE_LIMIT_MAX_CONCURRENT_CONNECTIONS) {
+    config.websocket.maxGlobalConcurrentConnections = parseInt(
+      process.env.RATE_LIMIT_MAX_CONCURRENT_CONNECTIONS,
       10
     );
   }
@@ -204,16 +215,28 @@ function validateConfig(config: RateLimitConfig): void {
   if (config.websocket.maxConnectionsPerIP < 1) {
     errors.push('Max connections per IP must be at least 1');
   }
+  if (config.websocket.maxCallsPerHour < 1) {
+    errors.push('WebSocket max calls per hour must be at least 1');
+  }
   if (config.websocket.maxGlobalConcurrentCalls < 1) {
     errors.push('Global concurrent calls limit must be at least 1');
   }
+  if (config.websocket.maxGlobalConcurrentConnections < 1) {
+    errors.push('Global concurrent connections limit must be at least 1');
+  }
   if (config.websocket.maxSessionDuration < 30000) {
     errors.push('Session duration must be at least 30 seconds');
+  }
+  if (config.websocket.callFrequencyWindow < 1000) {
+    errors.push('Call-frequency window must be at least 1 second');
   }
 
   // Validate penalty config
   if (config.penalties.suspensionDuration < 60000) {
     errors.push('Suspension duration must be at least 1 minute');
+  }
+  if (config.penalties.delayIncrement < 0 || config.penalties.maxDelay < 0) {
+    errors.push('Penalty delays must be positive numbers');
   }
 
   if (errors.length > 0) {
@@ -242,6 +265,7 @@ Rate Limiting Configuration:
     - ${config.websocket.maxConnectionsPerIP} concurrent connections per IP
     - ${config.websocket.maxCallsPerHour} calls per hour per IP
     - ${config.websocket.maxGlobalConcurrentCalls} total concurrent calls globally
+    - ${config.websocket.maxGlobalConcurrentConnections} total concurrent connections globally
     - ${sessionMinutes} minute maximum session duration
   
   Penalties:

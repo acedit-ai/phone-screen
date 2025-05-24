@@ -170,7 +170,7 @@ export class RateLimitService {
     // Check global concurrent connection limit
     if (
       this.metrics.activeConnections >=
-      this.config.websocket.maxGlobalConcurrentCalls
+      this.config.websocket.maxGlobalConcurrentConnections
     ) {
       this.metrics.blockedRequests++;
       this.recordViolation(ipAddress, "global_limit_exceeded");
@@ -318,11 +318,12 @@ export class RateLimitService {
     if (connectionEntry && connectionEntry.activeConnections > 0) {
       connectionEntry.activeConnections--;
       this.connectionCache.set(ipAddress, connectionEntry);
-      this.metrics.activeConnections = Math.max(
-        0,
-        this.metrics.activeConnections - 1
-      );
     }
+    // Always decrement the metric – it tracks reality, not cache state
+    this.metrics.activeConnections = Math.max(
+      0,
+      this.metrics.activeConnections - 1
+    );
   }
 
   /**
@@ -335,8 +336,9 @@ export class RateLimitService {
     if (callEntry && callEntry.activeCalls > 0) {
       callEntry.activeCalls--;
       this.callCache.set(ipAddress, callEntry);
-      this.metrics.activeCalls = Math.max(0, this.metrics.activeCalls - 1);
     }
+    // Always decrement the metric – it tracks reality, not cache state
+    this.metrics.activeCalls = Math.max(0, this.metrics.activeCalls - 1);
   }
 
   /**
@@ -407,6 +409,7 @@ export class RateLimitService {
     return `
 Max connections per IP: ${this.config.websocket.maxConnectionsPerIP}
 Max calls per hour per IP: ${this.config.websocket.maxCallsPerHour}
+Global concurrent connection limit: ${this.config.websocket.maxGlobalConcurrentConnections}
 Global concurrent call limit: ${this.config.websocket.maxGlobalConcurrentCalls}
 Max session duration: ${Math.round(
       this.config.websocket.maxSessionDuration / 60000

@@ -52,9 +52,27 @@ RATE_LIMIT_WINDOW_MS=900000          # 15 minutes in milliseconds
 RATE_LIMIT_MAX_REQUESTS=30           # Max requests per window
 RATE_LIMIT_MAX_CALLS=3               # Max calls per window
 RATE_LIMIT_MAX_CONCURRENT_CALLS=10   # Global concurrent call limit
+RATE_LIMIT_MAX_CONCURRENT_CONNECTIONS=10 # Global concurrent connection limit
 RATE_LIMIT_SESSION_DURATION=600000   # 10 minutes in milliseconds
 RATE_LIMIT_SUSPENSION_DURATION=3600000 # 1 hour suspension
 ```
+
+### 🔄 Connection vs Call Limits
+
+It's important to understand the distinction between **connections** and **calls**:
+
+- **WebSocket Connections**: Any WebSocket connection to the server (including `/logs` connections for monitoring)
+- **Calls**: Active voice calls using the `/call` WebSocket endpoint that consume Twilio resources
+
+This separation allows for:
+- Independent monitoring connections (`/logs`) that don't count against call limits
+- Separate tuning of connection capacity vs call capacity
+- Better resource allocation and clearer billing/usage tracking
+
+| Configuration | Purpose | Applies To |
+|---------------|---------|------------|
+| `maxGlobalConcurrentConnections` | Total WebSocket connections | All WebSocket endpoints (`/call`, `/logs`) |
+| `maxGlobalConcurrentCalls` | Active voice calls | Only `/call` endpoint connections |
 
 ### Default Limits
 
@@ -62,6 +80,7 @@ RATE_LIMIT_SUSPENSION_DURATION=3600000 # 1 hour suspension
 |-----------|-------|--------|-------------|
 | **WebSocket Connections** | 2 per IP | Concurrent | Maximum simultaneous WebSocket connections |
 | **Call Frequency** | 5 per IP | 1 hour | Maximum calls within the time window |
+| **Global Connections** | 10 total | Concurrent | Maximum WebSocket connections across all users |
 | **Global Calls** | 10 total | Concurrent | Maximum active calls across all users |
 | **Session Duration** | 10 minutes | Per session | Maximum duration for a single call |
 | **API Requests** | 30 per IP | 15 minutes | General API endpoint requests |
@@ -170,7 +189,8 @@ Response:
   "config": {
     "maxConnectionsPerIP": 2,
     "maxCallsPerHour": 5,
-    "maxGlobalConcurrentCalls": 10
+    "maxGlobalConcurrentCalls": 10,
+    "maxGlobalConcurrentConnections": 10
   }
 }
 ```
@@ -244,7 +264,8 @@ export const DEFAULT_RATE_LIMIT_CONFIG: RateLimitConfig = {
   websocket: {
     maxConnectionsPerIP: 5,        // Increase to 5 connections
     maxCallsPerHour: 10,           // Increase to 10 calls per hour
-    maxGlobalConcurrentCalls: 20,  // Increase global limit
+    maxGlobalConcurrentConnections: 20, // Increase global connection limit
+    maxGlobalConcurrentCalls: 20,  // Increase global call limit
     // ... other settings
   }
   // ... other sections

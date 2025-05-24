@@ -11,6 +11,7 @@
 
 import NodeCache from 'node-cache';
 import { NextRequest } from 'next/server';
+import { randomUUID } from 'crypto';
 
 /**
  * Configuration interface for API rate limiting
@@ -85,7 +86,7 @@ export const RATE_LIMIT_CONFIGS = {
  * Handles various proxy configurations and header formats
  * 
  * @param request - Next.js request object
- * @returns The client's IP address
+ * @returns The client's IP address or a unique identifier if IP cannot be determined
  */
 export function getClientIP(request: NextRequest): string {
   // Check various proxy headers in order of preference
@@ -104,8 +105,9 @@ export function getClientIP(request: NextRequest): string {
   if (cfConnectingIP) return cfConnectingIP;
   if (xClientIP) return xClientIP;
 
-  // Fallback to Next.js IP detection
-  return request.ip || 'unknown';
+  // Fallback to Next.js IP detection, or generate unique ID if unavailable
+  // This prevents all unidentifiable requests from sharing the same rate limit bucket
+  return request.ip ?? `unidentified-${randomUUID()}`;
 }
 
 /**
@@ -146,7 +148,10 @@ export async function rateLimit(
   }
 
   // Check if request should be allowed
-  const limit = config.maxCalls || config.maxRequests;
+  const limit =
+    identifier === "calls" && typeof config.maxCalls === "number"
+      ? config.maxCalls
+      : config.maxRequests;
   
   if (tracker.count >= limit) {
     // Request blocked
@@ -164,9 +169,14 @@ export async function rateLimit(
 
   // Allow the request and increment counter
   tracker.count++;
-  rateLimitCache.set(key, tracker, config.windowSec);
-
+  
+  // Calculate when this window should end
   const resetTime = tracker.windowStart + windowMs;
+  
+  // Expire exactly at the end of the current window instead of sliding on every hit
+  const ttlSeconds = Math.max(1, Math.ceil((resetTime - now) / 1000));
+  rateLimitCache.set(key, tracker, ttlSeconds);
+
   const remaining = limit - tracker.count;
 
   console.log(`✅ Rate limit check passed for IP ${ip}${identifier ? ` (${identifier})` : ''}: ${tracker.count}/${limit} requests`);
