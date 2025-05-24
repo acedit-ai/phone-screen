@@ -23,6 +23,9 @@ import {
   getClientIP,
 } from "./middleware/rateLimitMiddleware";
 
+// Verification middleware import
+import { requireVerification, optionalVerification } from "./middleware/verificationMiddleware";
+
 dotenv.config();
 
 const PORT = parseInt(process.env.PORT || "8081", 10);
@@ -92,51 +95,58 @@ app.get("/public-url", (req, res) => {
 });
 
 // TwiML endpoint for both inbound and outbound calls (with call-specific rate limiting)
-app.all("/twiml", createCallRateLimitMiddleware(rateLimitConfig, rateLimitService), (req, res) => {
-  console.log("📞 TwiML requested for call");
-  const wsUrl = new URL(PUBLIC_URL);
-  wsUrl.protocol = "wss:";
-  wsUrl.pathname = `/call`;
+app.all("/twiml", 
+  optionalVerification(), // Optional verification - log but don't block for compatibility
+  createCallRateLimitMiddleware(rateLimitConfig, rateLimitService), 
+  (req, res) => {
+    console.log("📞 TwiML requested for call");
+    const wsUrl = new URL(PUBLIC_URL);
+    wsUrl.protocol = "wss:";
+    wsUrl.pathname = `/call`;
 
-  // Extract job configuration from query parameters
-  const { jobTitle, company, jobDescription, voice } = req.query;
-  if (jobTitle || company || jobDescription || voice) {
-    console.log(
-      `📋 Job config in TwiML: ${jobTitle} at ${company}, voice: ${voice}`
-    );
-    // URL.searchParams.set() automatically handles URL encoding
-    if (jobTitle) wsUrl.searchParams.set("jobTitle", jobTitle as string);
-    if (company) wsUrl.searchParams.set("company", company as string);
-    if (jobDescription)
-      wsUrl.searchParams.set("jobDescription", jobDescription as string);
-    if (voice) wsUrl.searchParams.set("voice", voice as string);
-  }
+    // Extract job configuration from query parameters
+    const { jobTitle, company, jobDescription, voice } = req.query;
+    if (jobTitle || company || jobDescription || voice) {
+      console.log(
+        `📋 Job config in TwiML: ${jobTitle} at ${company}, voice: ${voice}`
+      );
+      // URL.searchParams.set() automatically handles URL encoding
+      if (jobTitle) wsUrl.searchParams.set("jobTitle", jobTitle as string);
+      if (company) wsUrl.searchParams.set("company", company as string);
+      if (jobDescription)
+        wsUrl.searchParams.set("jobDescription", jobDescription as string);
+      if (voice) wsUrl.searchParams.set("voice", voice as string);
+    }
 
-  const websocketUrl = wsUrl.toString();
-  console.log("🔗 Generated WebSocket URL:", websocketUrl);
+    const websocketUrl = wsUrl.toString();
+    console.log("🔗 Generated WebSocket URL:", websocketUrl);
 
-  // Escape the URL for XML - replace & with &amp; to fix XML parsing
-  const xmlEscapedUrl = websocketUrl.replace(/&/g, "&amp;");
+    // Escape the URL for XML - replace & with &amp; to fix XML parsing
+    const xmlEscapedUrl = websocketUrl.replace(/&/g, "&amp;");
 
-  // Ensure no leading/trailing whitespace and proper XML structure
-  const twimlContent = `<?xml version="1.0" encoding="UTF-8"?>
+    // Ensure no leading/trailing whitespace and proper XML structure
+    const twimlContent = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Connect>
     <Stream url="${xmlEscapedUrl}" />
   </Connect>
 </Response>`.trim();
 
-  console.log("📄 Generated TwiML:", twimlContent);
+    console.log("📄 Generated TwiML:", twimlContent);
 
-  // Set proper content type and send
-  res.set("Content-Type", "text/xml; charset=utf-8");
-  res.send(twimlContent);
-});
+    // Set proper content type and send
+    res.set("Content-Type", "text/xml; charset=utf-8");
+    res.send(twimlContent);
+  }
+);
 
 // New endpoint to list available tools (schemas)
-app.get("/tools", (req, res) => {
-  res.json(functions.map((f) => f.schema));
-});
+app.get("/tools", 
+  requireVerification(),
+  (req, res) => {
+    res.json(functions.map((f) => f.schema));
+  }
+);
 
 // Add rate limiting error handler
 app.use(rateLimitErrorHandler(rateLimitConfig));
