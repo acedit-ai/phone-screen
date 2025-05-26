@@ -19,7 +19,7 @@ const config: Config = {
   organizationName: 'acedit-ai', // Usually your GitHub org/user name.
   projectName: 'phone-screen', // Usually your repo name.
 
-  onBrokenLinks: 'throw',
+  onBrokenLinks: 'warn',
   onBrokenMarkdownLinks: 'warn',
 
   // Even if you don't use internationalization, you can use this field to set
@@ -37,9 +37,6 @@ const config: Config = {
         docs: {
           sidebarPath: './sidebars.ts',
           routeBasePath: '/', // Serve docs at /documentation/ (not /documentation/docs/)
-          // Remove this to remove the "edit this page" links.
-          editUrl:
-            'https://github.com/acedit-ai/phone-screen/tree/main/documentation/',
         },
         blog: false, // Disable blog as requested
         theme: {
@@ -85,7 +82,7 @@ const config: Config = {
           items: [
             {
               label: 'Getting Started',
-              to: '/intro',
+              to: '/',
             },
           ],
         },

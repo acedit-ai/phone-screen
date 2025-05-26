@@ -65,7 +65,6 @@ export default function Footer(): React.JSX.Element | null {
             <div className="footer__bottom">
               <p style={{margin: 0, fontSize: '0.9rem', color: 'var(--ifm-color-emphasis-600)'}}>
                 © {new Date().getFullYear()} <Link href="https://acedit.ai">Acedit</Link>. 
-                Built with ❤️ using <Link href="https://docusaurus.io">Docusaurus</Link>.
               </p>
             </div>
           </div>
