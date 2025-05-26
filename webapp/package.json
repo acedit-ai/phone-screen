@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "build:with-docs": "cd ../documentation && npm install && npm run build-and-copy && cd ../webapp && next build",
     "start": "next start",
     "lint": "next lint",
     "fetch-env": "npx vercel env pull .env.development.local",
