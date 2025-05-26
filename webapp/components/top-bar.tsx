@@ -73,7 +73,16 @@ const TopBar = () => {
         </div>
       </div>
 
-      <div className="flex items-center gap-3 sm:gap-4 flex-shrink-0">
+      <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
+        {/* Documentation Link */}
+        <Link
+          href="/documentation"
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 rounded-md text-xs text-blue-700 hover:text-blue-800 transition-colors duration-200 border border-blue-200 flex-shrink-0"
+        >
+          <BookOpen className="w-3 h-3" />
+          <span className="hidden sm:inline">Docs</span>
+        </Link>
+
         {/* Text description - hidden on mobile */}
         <div className="hidden lg:flex flex-col items-end">
           <p className="text-xs text-gray-500">
