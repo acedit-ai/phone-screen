@@ -115,12 +115,11 @@ The documentation system is now **fully production-ready** with:
 To completely remove documentation from this project:
 
 1. Delete this entire `/documentation` directory
-2. Delete `webapp/public/documentation/` (if it exists)
-3. Remove documentation routes from `webapp/next.config.mjs`:
+2. Remove documentation routes from `webapp/next.config.mjs`:
    ```javascript
    // Remove all /documentation routes from rewrites and redirects
    ```
-4. Remove documentation link from `webapp/components/top-bar.tsx`:
+3. Remove documentation link from `webapp/components/top-bar.tsx`:
    ```jsx
    // Remove the "Docs" link and BookOpen icon
    ```
