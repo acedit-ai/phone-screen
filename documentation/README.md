@@ -30,7 +30,6 @@ The site is configured for **subpath hosting** at `/documentation/`:
 - `npm start` - Start development server on port 3001
 - `npm run build` - Build static files for production (configured for `/documentation/` subpath)
 - **`npm run build-and-copy`** - Build docs and copy to webapp's public folder
-- **`npm run test-integration`** - Test that documentation works in webapp (requires webapp running)
 - `npm run serve` - Serve built files locally to test production build
 - `npm run clear` - Clear Docusaurus cache
 
@@ -41,7 +40,6 @@ The **Phase 3** integration process:
 1. **`npm run build-and-copy`** - Automatically builds and copies documentation to webapp
 2. Static files are placed in `webapp/public/documentation/`
 3. Next.js serves them at `http://localhost:3000/documentation/`
-4. **`npm run test-integration`** - Verifies integration is working
 
 ### Graceful Fallbacks
 
@@ -66,7 +64,6 @@ The webapp now includes **complete Next.js integration**:
 ### 🧪 Testing
 - Enhanced integration tests cover all routing scenarios
 - Tests clean URLs, redirects, and content verification
-- Run with: `npm run test-integration`
 
 ## Enhanced Documentation (Phase 5)
 
