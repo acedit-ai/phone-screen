@@ -13,12 +13,49 @@ import type {SidebarsConfig} from '@docusaurus/plugin-content-docs';
  Create as many sidebars as you want.
  */
 const sidebars: SidebarsConfig = {
-  // Manual sidebar configuration to avoid broken links
+  // Organized sidebar with logical groupings
   tutorialSidebar: [
     'intro',
     'quick-start',
+    {
+      type: 'category',
+      label: '🚀 Getting Started',
+      items: [
+        'getting-started/environment-setup',
+      ],
+    },
+    {
+      type: 'category',
+      label: '🏗️ Architecture',
+      items: [
+        'architecture/session-management',
+        'architecture/rate-limiting',
+        'architecture/security',
+      ],
+    },
+    {
+      type: 'category',
+      label: '⚙️ Configuration',
+      items: [
+        'configuration/neondb-setup',
+      ],
+    },
     'customization',
-    'deployment',
+    {
+      type: 'category',
+      label: '🚀 Deployment',
+      items: [
+        'deployment',
+        'deployment/vercel-integration',
+      ],
+    },
+    {
+      type: 'category',
+      label: '🛠️ Development',
+      items: [
+        'development/workflow',
+      ],
+    },
     'troubleshooting',
   ],
 };

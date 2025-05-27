@@ -1,10 +1,14 @@
+---
+sidebar_position: 1
+---
+
 # NeonDB Setup for Persistent Rate Limiting
 
 This guide explains how to set up NeonDB for persistent rate limiting in the phone screening application.
 
 ## Why NeonDB?
 
-The application now uses persistent rate limiting to ensure limits work correctly across:
+The application uses persistent rate limiting to ensure limits work correctly across:
 - Server restarts
 - Multiple deployment instances  
 - Vercel deployments with different instances

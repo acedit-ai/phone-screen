@@ -1,4 +1,8 @@
-# 🔄 Session Management & WebSocket Connection Handling
+---
+sidebar_position: 1
+---
+
+# Session Management & WebSocket Connection Handling
 
 This document explains the improved session management system that ensures proper state handling between practice sessions.
 
@@ -125,26 +129,18 @@ This script tests:
 
 ## 📊 State Flow Diagram
 
-```
-User Starts Call
-       ↓
-Frontend Connects to WebSocket
-       ↓
-Job Configuration Sent
-       ↓
-Session Associated with Call
-       ↓
-Call Active (Transcript Updates)
-       ↓
-Call Ends (Manual or Natural)
-       ↓
-Frontend Receives End Status
-       ↓
-WebSocket Connection Cleaned Up
-       ↓
-User Clicks "Practice Again"
-       ↓
-All State Reset for Fresh Session
+```mermaid
+graph TD
+    A[User Starts Call] --> B[Frontend Connects to WebSocket]
+    B --> C[Job Configuration Sent]
+    C --> D[Session Associated with Call]
+    D --> E[Call Active - Transcript Updates]
+    E --> F[Call Ends - Manual or Natural]
+    F --> G[Frontend Receives End Status]
+    G --> H[WebSocket Connection Cleaned Up]
+    H --> I[User Clicks Practice Again]
+    I --> J[All State Reset for Fresh Session]
+    J --> B
 ```
 
 ## 🎯 Best Practices

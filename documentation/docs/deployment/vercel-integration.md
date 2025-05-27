@@ -1,3 +1,7 @@
+---
+sidebar_position: 1
+---
+
 # Vercel Integration Setup for PR Previews
 
 This document explains how to configure the integration between your fly.io websocket server deployments and Vercel webapp deployments for PR previews.
@@ -51,7 +55,7 @@ You need to add the following secrets to your GitHub repository:
   # Find your team and note the ID
   ```
   
-  **Note**: This is required because your project "phone-screen" belongs to a team (either "ebloom19's projects" or "Acedit") rather than your personal account. Team projects require the `teamId` parameter in API calls.
+  **Note**: This is required because your project belongs to a team rather than your personal account. Team projects require the `teamId` parameter in API calls.
 
 ## Setting Up GitHub Secrets
 
@@ -79,6 +83,38 @@ The environment variables are created with these properties:
 - **Target**: `preview` (only applies to preview deployments)
 - **Git Branch**: Specific to the PR branch
 
+## GitHub Actions Workflow
+
+The integration uses a GitHub Actions workflow that:
+
+1. **Detects PR Events**: Triggers on PR open, sync, and close
+2. **Deploys WebSocket Server**: Uses fly.io for websocket server deployment
+3. **Updates Vercel**: Sets environment variables and triggers redeployment
+4. **Cleanup**: Removes resources when PR is closed
+
+### Example Workflow Configuration
+
+```yaml
+name: Deploy PR Preview
+
+on:
+  pull_request:
+    types: [opened, synchronize, closed]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to fly.io
+        # Deploy websocket server to predictable URL
+        
+      - name: Update Vercel Environment
+        # Set NEXT_PUBLIC_WEBSOCKET_SERVER_URL
+        
+      - name: Trigger Vercel Redeploy
+        # Force redeployment to pick up new env vars
+```
+
 ## Troubleshooting
 
 ### If the integration isn't working:
@@ -90,14 +126,25 @@ The environment variables are created with these properties:
 
 ### Common Issues:
 
-- **403 Forbidden**: Usually means the `VERCEL_TOKEN` doesn't have sufficient permissions
-- **404 Not Found**: Usually means the `VERCEL_PROJECT_ID` is incorrect
-- **Project not found**: Usually means you're missing the `VERCEL_TEAM_ID` for team projects
-- **Environment variable not taking effect**: The Vercel redeployment step might have failed
+**403 Forbidden**
+- Usually means the `VERCEL_TOKEN` doesn't have sufficient permissions
+- Ensure the token has project access permissions
+
+**404 Not Found**
+- Usually means the `VERCEL_PROJECT_ID` is incorrect
+- Verify the project ID from your Vercel dashboard
+
+**Project not found**
+- Usually means you're missing the `VERCEL_TEAM_ID` for team projects
+- The error occurs when your project belongs to a team but you don't provide the `teamId` parameter
+
+**Environment variable not taking effect**
+- The Vercel redeployment step might have failed
+- Check that the workflow triggered a successful redeployment
 
 ### Team vs Personal Projects
 
-If your project belongs to a team (as indicated by the team sections in your Vercel dashboard), you **must** include the `VERCEL_TEAM_ID` secret. The error "Project not found" occurs when:
+If your project belongs to a team (as indicated by team sections in your Vercel dashboard), you **must** include the `VERCEL_TEAM_ID` secret. The error "Project not found" occurs when:
 - Your project belongs to a team but you don't provide the `teamId` parameter
 - Your token doesn't have access to the team
 - The team ID is incorrect
@@ -135,4 +182,14 @@ const getPRWebsocketURL = () => {
   // Fallback to environment variable for production
   return process.env.NEXT_PUBLIC_WEBSOCKET_SERVER_URL;
 };
-``` 
+```
+
+## Benefits
+
+- **Isolated Testing**: Each PR gets its own environment
+- **Automatic Setup**: No manual configuration needed
+- **Clean Cleanup**: Resources automatically removed when PR is closed
+- **Production-like**: Preview environments match production architecture
+- **Team Collaboration**: Easy for reviewers to test changes
+
+This integration ensures that every PR can be fully tested with its own dedicated infrastructure, making the review process more reliable and comprehensive. 
