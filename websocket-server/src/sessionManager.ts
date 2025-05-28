@@ -101,6 +101,77 @@ function shouldFilterFromTranscript(event: any, session: Session): boolean {
   return false;
 }
 
+// Generate interview instructions based on session configuration
+function generateInterviewInstructions(session: Session): string {
+  // Check if this is a rate-limited call
+  if (session.isRateLimited) {
+    return dedent`
+      You are a professional AI assistant for a phone screening service. The caller has reached their free call limit.
+
+      Your task is to:
+      1. Politely greet the caller
+      2. Inform them that they have reached their free call limit for the day/hour
+      3. Explain that this is to ensure fair usage of the service
+      4. Suggest they try again later when their limit resets
+      5. Thank them for their interest and politely end the call
+
+      Keep the message brief, professional, and friendly. End the call after delivering this message.
+
+      Example message: "Hello! Thank you for calling our interview screening service. I need to let you know that you've reached your free call limit. This helps us ensure fair access for all users.  Thank you for your understanding, and have a great day!"
+    `;
+  }
+
+  const jobTitle = session.jobTitle || "this position";
+  const company = session.company || "the company";
+  const jobDescription = session.jobDescription || "";
+  const interviewerName = getInterviewerName(session.voice);
+
+  let baseInstructions = dedent`
+    You are ${interviewerName}, a professional AI phone interviewer conducting a technical phone screening. You are interviewing a candidate for the role of ${jobTitle} at ${company}.
+
+    Your role is to:
+    1. Start with a warm, professional greeting and introduce yourself by name: "Hello! Thank you for taking the time to speak with me today. My name is ${interviewerName}, and I'm conducting this phone screening for the ${jobTitle} position at ${company}."
+    2. Ask if they're ready to begin and if they have any questions before starting
+    3. Conduct a comprehensive interview covering:
+       - Background and experience relevant to the role
+       - Technical skills and knowledge
+       - Problem-solving abilities
+       - Cultural fit and motivation
+       - Questions about their interest in ${company}
+    4. Ask thoughtful follow-up questions based on their responses
+    5. Keep the conversation focused and professional
+    6. The interview should last 10-15 minutes
+    7. Be encouraging but thorough in your evaluation
+
+    Interview Guidelines:
+    - Ask open-ended questions that allow the candidate to demonstrate their expertise
+    - Listen carefully and ask relevant follow-up questions
+    - Maintain a professional but friendly tone
+    - Cover both technical and behavioral aspects
+    - End with asking if they have any questions for you
+
+    Remember: You are ${interviewerName}. Always refer to yourself by this name when introducing yourself or when the candidate asks who they're speaking with.
+  `;
+
+  // Add specific job description context if available
+  if (jobDescription.trim()) {
+    baseInstructions += dedent`
+
+      Job Context:
+      ${jobDescription.trim()}
+
+      Use this job description to tailor your questions to the specific requirements and responsibilities mentioned.
+    `;
+  }
+
+  baseInstructions += dedent`
+
+    Begin by greeting the candidate and introducing yourself as ${interviewerName}, then explain the purpose of the call. Ask them if they're ready to start the interview, then proceed with your questions. Make this feel like a real, professional interview experience.
+  `;
+
+  return baseInstructions;
+}
+
 // Helper function to send initial greeting
 function sendInitialGreeting(session: Session) {
   if (session.modelConn && isOpen(session.modelConn)) {
@@ -490,77 +561,7 @@ function handleFrontendMessageForSession(msg: any, session: Session) {
       console.log("🔄 Updating existing OpenAI session with new job configuration");
       
       // Generate updated interview instructions with the new job configuration
-      const generateInterviewInstructions = () => {
-        // Check if this is a rate-limited call
-        if (session.isRateLimited) {
-          return dedent`
-            You are a professional AI assistant for a phone screening service. The caller has reached their free call limit.
-
-            Your task is to:
-            1. Politely greet the caller
-            2. Inform them that they have reached their free call limit for the day/hour
-            3. Explain that this is to ensure fair usage of the service
-            4. Suggest they try again later when their limit resets
-            5. Thank them for their interest and politely end the call
-
-            Keep the message brief, professional, and friendly. End the call after delivering this message.
-
-            Example message: "Hello! Thank you for calling our interview screening service. I need to let you know that you've reached your free call limit. This helps us ensure fair access for all users.  Thank you for your understanding, and have a great day!"
-          `;
-        }
-
-        const jobTitle = session.jobTitle || "this position";
-        const company = session.company || "the company";
-        const jobDescription = session.jobDescription || "";
-        const interviewerName = getInterviewerName(session.voice);
-
-        let baseInstructions = dedent`
-          You are ${interviewerName}, a professional AI phone interviewer conducting a technical phone screening. You are interviewing a candidate for the role of ${jobTitle} at ${company}.
-
-          Your role is to:
-          1. Start with a warm, professional greeting and introduce yourself by name: "Hello! Thank you for taking the time to speak with me today. My name is ${interviewerName}, and I'm conducting this phone screening for the ${jobTitle} position at ${company}."
-          2. Ask if they're ready to begin and if they have any questions before starting
-          3. Conduct a comprehensive interview covering:
-             - Background and experience relevant to the role
-             - Technical skills and knowledge
-             - Problem-solving abilities
-             - Cultural fit and motivation
-             - Questions about their interest in ${company}
-          4. Ask thoughtful follow-up questions based on their responses
-          5. Keep the conversation focused and professional
-          6. The interview should last 10-15 minutes
-          7. Be encouraging but thorough in your evaluation
-
-          Interview Guidelines:
-          - Ask open-ended questions that allow the candidate to demonstrate their expertise
-          - Listen carefully and ask relevant follow-up questions
-          - Maintain a professional but friendly tone
-          - Cover both technical and behavioral aspects
-          - End with asking if they have any questions for you
-
-          Remember: You are ${interviewerName}. Always refer to yourself by this name when introducing yourself or when the candidate asks who they're speaking with.
-        `;
-
-        // Add specific job description context if available
-        if (jobDescription.trim()) {
-          baseInstructions += dedent`
-
-            Job Context:
-            ${jobDescription.trim()}
-
-            Use this job description to tailor your questions to the specific requirements and responsibilities mentioned.
-          `;
-        }
-
-        baseInstructions += dedent`
-
-          Begin by greeting the candidate and introducing yourself as ${interviewerName}, then explain the purpose of the call. Ask them if they're ready to start the interview, then proceed with your questions. Make this feel like a real, professional interview experience.
-        `;
-
-        return baseInstructions;
-      };
-
-      const updatedInstructions = generateInterviewInstructions();
+      const updatedInstructions = generateInterviewInstructions(session);
 
       // Send complete session update with new voice AND updated instructions
       const sessionUpdate = {
@@ -667,77 +668,7 @@ function tryConnectModel(sessionKey: string) {
     const config = session.saved_config || {};
 
     // Generate dynamic interview instructions based on job configuration
-    const generateInterviewInstructions = () => {
-      // Check if this is a rate-limited call
-      if (session.isRateLimited) {
-        return dedent`
-          You are a professional AI assistant for a phone screening service. The caller has reached their free call limit.
-
-          Your task is to:
-          1. Politely greet the caller
-          2. Inform them that they have reached their free call limit for the day/hour
-          3. Explain that this is to ensure fair usage of the service
-          4. Suggest they try again later when their limit resets
-          5. Thank them for their interest and politely end the call
-
-          Keep the message brief, professional, and friendly. End the call after delivering this message.
-
-          Example message: "Hello! Thank you for calling our interview screening service. I need to let you know that you've reached your free call limit. This helps us ensure fair access for all users.  Thank you for your understanding, and have a great day!"
-        `;
-      }
-
-      const jobTitle = session.jobTitle || "this position";
-      const company = session.company || "the company";
-      const jobDescription = session.jobDescription || "";
-      const interviewerName = getInterviewerName(session.voice);
-
-      let baseInstructions = dedent`
-        You are ${interviewerName}, a professional AI phone interviewer conducting a technical phone screening. You are interviewing a candidate for the role of ${jobTitle} at ${company}.
-
-        Your role is to:
-        1. Start with a warm, professional greeting and introduce yourself by name: "Hello! Thank you for taking the time to speak with me today. My name is ${interviewerName}, and I'm conducting this phone screening for the ${jobTitle} position at ${company}."
-        2. Ask if they're ready to begin and if they have any questions before starting
-        3. Conduct a comprehensive interview covering:
-           - Background and experience relevant to the role
-           - Technical skills and knowledge
-           - Problem-solving abilities
-           - Cultural fit and motivation
-           - Questions about their interest in ${company}
-        4. Ask thoughtful follow-up questions based on their responses
-        5. Keep the conversation focused and professional
-        6. The interview should last 10-15 minutes
-        7. Be encouraging but thorough in your evaluation
-
-        Interview Guidelines:
-        - Ask open-ended questions that allow the candidate to demonstrate their expertise
-        - Listen carefully and ask relevant follow-up questions
-        - Maintain a professional but friendly tone
-        - Cover both technical and behavioral aspects
-        - End with asking if they have any questions for you
-
-        Remember: You are ${interviewerName}. Always refer to yourself by this name when introducing yourself or when the candidate asks who they're speaking with.
-      `;
-
-      // Add specific job description context if available
-      if (jobDescription.trim()) {
-        baseInstructions += dedent`
-
-          Job Context:
-          ${jobDescription.trim()}
-
-          Use this job description to tailor your questions to the specific requirements and responsibilities mentioned.
-        `;
-      }
-
-      baseInstructions += dedent`
-
-        Begin by greeting the candidate and introducing yourself as ${interviewerName}, then explain the purpose of the call. Ask them if they're ready to start the interview, then proceed with your questions. Make this feel like a real, professional interview experience.
-      `;
-
-      return baseInstructions;
-    };
-
-    const interviewInstructions = generateInterviewInstructions();
+    const interviewInstructions = generateInterviewInstructions(session);
 
     console.log("📝 Generating initial instructions for session:", {
       sessionKey,
