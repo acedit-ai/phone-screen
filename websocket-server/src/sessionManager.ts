@@ -21,6 +21,8 @@ interface Session {
   // Rate limiting context
   isRateLimited?: boolean;
   rateLimitReason?: string;
+  // Track initial greeting prompts to filter from transcripts
+  initialGreetingPrompts?: Set<string>;
 }
 
 // Map to store multiple sessions, keyed by streamSid (or temporary ID)
@@ -83,6 +85,125 @@ function getInterviewerName(voice?: string): string {
   return nameMap[capitalizedVoice] || capitalizedVoice;
 }
 
+// Helper function to check if a message should be filtered from transcripts
+function shouldFilterFromTranscript(event: any, session: Session): boolean {
+  // Filter conversation.item.created events for initial greeting prompts
+  if (event.type === "conversation.item.created" && event.item?.type === "message" && event.item?.role === "user") {
+    const messageText = event.item?.content?.[0]?.text || "";
+    
+    // Check if this message is in our set of initial greeting prompts
+    if (session.initialGreetingPrompts?.has(messageText)) {
+      console.log("🚫 Filtering initial greeting prompt from transcript:", messageText.substring(0, 50) + "...");
+      return true;
+    }
+  }
+  
+  return false;
+}
+
+// Generate interview instructions based on session configuration
+function generateInterviewInstructions(session: Session): string {
+  // Check if this is a rate-limited call
+  if (session.isRateLimited) {
+    return dedent`
+      You are a professional AI assistant for a phone screening service. The caller has reached their free call limit.
+
+      Your task is to:
+      1. Politely greet the caller
+      2. Inform them that they have reached their free call limit for the day/hour
+      3. Explain that this is to ensure fair usage of the service
+      4. Suggest they try again later when their limit resets
+      5. Thank them for their interest and politely end the call
+
+      Keep the message brief, professional, and friendly. End the call after delivering this message.
+
+      Example message: "Hello! Thank you for calling our interview screening service. I need to let you know that you've reached your free call limit. This helps us ensure fair access for all users.  Thank you for your understanding, and have a great day!"
+    `;
+  }
+
+  const jobTitle = session.jobTitle || "this position";
+  const company = session.company || "the company";
+  const jobDescription = session.jobDescription || "";
+  const interviewerName = getInterviewerName(session.voice);
+
+  let baseInstructions = dedent`
+    You are ${interviewerName}, a professional AI phone interviewer conducting a technical phone screening. You are interviewing a candidate for the role of ${jobTitle} at ${company}.
+
+    Your role is to:
+    1. Start with a warm, professional greeting and introduce yourself by name: "Hello! Thank you for taking the time to speak with me today. My name is ${interviewerName}, and I'm conducting this phone screening for the ${jobTitle} position at ${company}."
+    2. Ask if they're ready to begin and if they have any questions before starting
+    3. Conduct a comprehensive interview covering:
+       - Background and experience relevant to the role
+       - Technical skills and knowledge
+       - Problem-solving abilities
+       - Cultural fit and motivation
+       - Questions about their interest in ${company}
+    4. Ask thoughtful follow-up questions based on their responses
+    5. Keep the conversation focused and professional
+    6. The interview should last 10-15 minutes
+    7. Be encouraging but thorough in your evaluation
+
+    Interview Guidelines:
+    - Ask open-ended questions that allow the candidate to demonstrate their expertise
+    - Listen carefully and ask relevant follow-up questions
+    - Maintain a professional but friendly tone
+    - Cover both technical and behavioral aspects
+    - End with asking if they have any questions for you
+
+    Remember: You are ${interviewerName}. Always refer to yourself by this name when introducing yourself or when the candidate asks who they're speaking with.
+  `;
+
+  // Add specific job description context if available
+  if (jobDescription.trim()) {
+    baseInstructions += dedent`
+
+      Job Context:
+      ${jobDescription.trim()}
+
+      Use this job description to tailor your questions to the specific requirements and responsibilities mentioned.
+    `;
+  }
+
+  baseInstructions += dedent`
+
+    Begin by greeting the candidate and introducing yourself as ${interviewerName}, then explain the purpose of the call. Ask them if they're ready to start the interview, then proceed with your questions. Make this feel like a real, professional interview experience.
+  `;
+
+  return baseInstructions;
+}
+
+// Helper function to send initial greeting
+function sendInitialGreeting(session: Session) {
+  if (session.modelConn && isOpen(session.modelConn)) {
+    console.log("🎤 Sending initial greeting to start interview");
+    
+    const greetingText = "Hello, I just answered the phone. Please start the interview.";
+    
+    // Initialize the set if it doesn't exist
+    if (!session.initialGreetingPrompts) {
+      session.initialGreetingPrompts = new Set();
+    }
+    
+    // Track this greeting prompt so we can filter it from transcripts
+    session.initialGreetingPrompts.add(greetingText);
+    
+    jsonSend(session.modelConn, {
+      type: "conversation.item.create",
+      item: {
+        type: "message",
+        role: "user",
+        content: [
+          {
+            type: "input_text",
+            text: greetingText,
+          },
+        ],
+      },
+    });
+    jsonSend(session.modelConn, { type: "response.create" });
+  }
+}
+
 export function handleCallConnection(
   ws: WebSocket,
   openAIApiKey: string,
@@ -111,6 +232,8 @@ export function handleCallConnection(
     // Set rate limiting context
     isRateLimited: jobConfig?.isRateLimited,
     rateLimitReason: jobConfig?.rateLimitReason,
+    // Initialize set to track initial greeting prompts
+    initialGreetingPrompts: new Set(),
   };
 
   sessions.set(sessionId, session);
@@ -437,20 +560,39 @@ function handleFrontendMessageForSession(msg: any, session: Session) {
     if (session.modelConn && isOpen(session.modelConn)) {
       console.log("🔄 Updating existing OpenAI session with new job configuration");
       
-      // Send session update with new voice if specified
-      if (msg.voice) {
-        const sessionUpdate = {
-          type: "session.update",
-          session: {
-            voice: msg.voice,
-            modalities: ["text", "audio"],
-            turn_detection: { type: "server_vad" },
-            input_audio_transcription: { model: "whisper-1" },
-            input_audio_format: "g711_ulaw",
-            output_audio_format: "g711_ulaw",
-          },
-        };
-        jsonSend(session.modelConn, sessionUpdate);
+      // Generate updated interview instructions with the new job configuration
+      const updatedInstructions = generateInterviewInstructions(session);
+
+      // Send complete session update with new voice AND updated instructions
+      const sessionUpdate = {
+        type: "session.update",
+        session: {
+          voice: msg.voice || "ash",
+          modalities: ["text", "audio"],
+          turn_detection: { type: "server_vad" },
+          input_audio_transcription: { model: "gpt-4o-mini-transcribe" },
+          input_audio_format: "g711_ulaw",
+          output_audio_format: "g711_ulaw",
+          instructions: updatedInstructions,
+          ...session.saved_config,
+        },
+      };
+      
+      console.log("📝 Sending updated instructions with job details:", {
+        jobTitle: session.jobTitle,
+        company: session.company,
+        voice: session.voice
+      });
+      
+      jsonSend(session.modelConn, sessionUpdate);
+      
+      // If this is the first time we're receiving job configuration and the conversation hasn't started,
+      // send the initial greeting to start the interview
+      if (session.jobTitle && session.company && !session.lastAssistantItem) {
+        console.log("🎤 Job configuration received - starting interview");
+        setTimeout(() => {
+          sendInitialGreeting(session);
+        }, 500); // Small delay to ensure the session update is processed first
       }
     }
     
@@ -526,77 +668,15 @@ function tryConnectModel(sessionKey: string) {
     const config = session.saved_config || {};
 
     // Generate dynamic interview instructions based on job configuration
-    const generateInterviewInstructions = () => {
-      // Check if this is a rate-limited call
-      if (session.isRateLimited) {
-        return dedent`
-          You are a professional AI assistant for a phone screening service. The caller has reached their free call limit.
+    const interviewInstructions = generateInterviewInstructions(session);
 
-          Your task is to:
-          1. Politely greet the caller
-          2. Inform them that they have reached their free call limit for the day/hour
-          3. Explain that this is to ensure fair usage of the service
-          4. Suggest they try again later when their limit resets
-          5. Thank them for their interest and politely end the call
-
-          Keep the message brief, professional, and friendly. End the call after delivering this message.
-
-          Example message: "Hello! Thank you for calling our interview screening service. I need to let you know that you've reached your free call limit. This helps us ensure fair access for all users.  Thank you for your understanding, and have a great day!"
-        `;
-      }
-
-      const jobTitle = session.jobTitle || "this position";
-      const company = session.company || "the company";
-      const jobDescription = session.jobDescription || "";
-      const interviewerName = getInterviewerName(session.voice);
-
-      let baseInstructions = dedent`
-        You are ${interviewerName}, a professional AI phone interviewer conducting a technical phone screening. You are interviewing a candidate for the role of ${jobTitle} at ${company}.
-
-        Your role is to:
-        1. Start with a warm, professional greeting and introduce yourself by name: "Hello! Thank you for taking the time to speak with me today. My name is ${interviewerName}, and I'm conducting this phone screening for the ${jobTitle} position at ${company}."
-        2. Ask if they're ready to begin and if they have any questions before starting
-        3. Conduct a comprehensive interview covering:
-           - Background and experience relevant to the role
-           - Technical skills and knowledge
-           - Problem-solving abilities
-           - Cultural fit and motivation
-           - Questions about their interest in ${company}
-        4. Ask thoughtful follow-up questions based on their responses
-        5. Keep the conversation focused and professional
-        6. The interview should last 10-15 minutes
-        7. Be encouraging but thorough in your evaluation
-
-        Interview Guidelines:
-        - Ask open-ended questions that allow the candidate to demonstrate their expertise
-        - Listen carefully and ask relevant follow-up questions
-        - Maintain a professional but friendly tone
-        - Cover both technical and behavioral aspects
-        - End with asking if they have any questions for you
-
-        Remember: You are ${interviewerName}. Always refer to yourself by this name when introducing yourself or when the candidate asks who they're speaking with.
-      `;
-
-      // Add specific job description context if available
-      if (jobDescription.trim()) {
-        baseInstructions += dedent`
-
-          Job Context:
-          ${jobDescription.trim()}
-
-          Use this job description to tailor your questions to the specific requirements and responsibilities mentioned.
-        `;
-      }
-
-      baseInstructions += dedent`
-
-        Begin by greeting the candidate and introducing yourself as ${interviewerName}, then explain the purpose of the call. Ask them if they're ready to start the interview, then proceed with your questions. Make this feel like a real, professional interview experience.
-      `;
-
-      return baseInstructions;
-    };
-
-    const interviewInstructions = generateInterviewInstructions();
+    console.log("📝 Generating initial instructions for session:", {
+      sessionKey,
+      jobTitle: session.jobTitle,
+      company: session.company,
+      voice: session.voice,
+      hasJobConfig: !!(session.jobTitle && session.company)
+    });
 
     jsonSend(session.modelConn, {
       type: "session.update",
@@ -617,6 +697,15 @@ function tryConnectModel(sessionKey: string) {
       if (isOpen(session.modelConn)) {
         if (session.isRateLimited) {
           console.log("🚫 Sending rate limit message and preparing to end call");
+          
+          const rateLimitGreetingText = "Hello, I just answered the phone. Please deliver the rate limit message and end the call politely.";
+          
+          // Track this greeting prompt so we can filter it from transcripts
+          if (!session.initialGreetingPrompts) {
+            session.initialGreetingPrompts = new Set();
+          }
+          session.initialGreetingPrompts.add(rateLimitGreetingText);
+          
           jsonSend(session.modelConn, {
             type: "conversation.item.create",
             item: {
@@ -625,37 +714,30 @@ function tryConnectModel(sessionKey: string) {
               content: [
                 {
                   type: "input_text",
-                  text: "Hello, I just answered the phone. Please deliver the rate limit message and end the call politely.",
+                  text: rateLimitGreetingText,
                 },
               ],
             },
           });
-        } else {
-          console.log("🎤 Sending initial greeting to start interview");
-          jsonSend(session.modelConn, {
-            type: "conversation.item.create",
-            item: {
-              type: "message",
-              role: "user",
-              content: [
-                {
-                  type: "input_text",
-                  text: "Hello, I just answered the phone. Please start the interview.",
-                },
-              ],
-            },
-          });
-        }
-        jsonSend(session.modelConn, { type: "response.create" });
-        
-        // For rate-limited calls, automatically hang up after delivering the message
-        if (session.isRateLimited) {
+          jsonSend(session.modelConn, { type: "response.create" });
+          
+          // For rate-limited calls, automatically hang up after delivering the message
           setTimeout(() => {
             console.log("🚫 Auto-hanging up rate-limited call after message delivery");
             if (session.twilioConn) {
               session.twilioConn.close(1000, 'Rate limit message delivered');
             }
           }, 15000); // Give 15 seconds for the message to be delivered
+        } else {
+          // For normal calls, only start if we have job configuration
+          // Otherwise, wait for job configuration to be received
+          if (session.jobTitle && session.company) {
+            console.log("🎤 Sending initial greeting to start interview (job config available)");
+            sendInitialGreeting(session);
+          } else {
+            console.log("⏳ Waiting for job configuration before starting interview");
+            // The greeting will be sent when job configuration is received
+          }
         }
       }
     }, 1000); // Wait 1 second after connection to ensure everything is set up
@@ -684,7 +766,10 @@ function handleModelMessage(data: RawData, sessionKey: string) {
   const session = sessions.get(sessionKey);
   if (!session) return;
 
-  jsonSend(session.frontendConn, event);
+  // Filter out initial greeting prompts from transcript
+  if (!shouldFilterFromTranscript(event, session)) {
+    jsonSend(session.frontendConn, event);
+  }
 
   switch (event.type) {
     case "input_audio_buffer.speech_started":
