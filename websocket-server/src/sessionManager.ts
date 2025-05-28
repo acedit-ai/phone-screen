@@ -21,6 +21,8 @@ interface Session {
   // Rate limiting context
   isRateLimited?: boolean;
   rateLimitReason?: string;
+  // Track initial greeting prompts to filter from transcripts
+  initialGreetingPrompts?: Set<string>;
 }
 
 // Map to store multiple sessions, keyed by streamSid (or temporary ID)
@@ -83,10 +85,37 @@ function getInterviewerName(voice?: string): string {
   return nameMap[capitalizedVoice] || capitalizedVoice;
 }
 
+// Helper function to check if a message should be filtered from transcripts
+function shouldFilterFromTranscript(event: any, session: Session): boolean {
+  // Filter conversation.item.created events for initial greeting prompts
+  if (event.type === "conversation.item.created" && event.item?.type === "message" && event.item?.role === "user") {
+    const messageText = event.item?.content?.[0]?.text || "";
+    
+    // Check if this message is in our set of initial greeting prompts
+    if (session.initialGreetingPrompts?.has(messageText)) {
+      console.log("🚫 Filtering initial greeting prompt from transcript:", messageText.substring(0, 50) + "...");
+      return true;
+    }
+  }
+  
+  return false;
+}
+
 // Helper function to send initial greeting
 function sendInitialGreeting(session: Session) {
   if (session.modelConn && isOpen(session.modelConn)) {
     console.log("🎤 Sending initial greeting to start interview");
+    
+    const greetingText = "Hello, I just answered the phone. Please start the interview.";
+    
+    // Initialize the set if it doesn't exist
+    if (!session.initialGreetingPrompts) {
+      session.initialGreetingPrompts = new Set();
+    }
+    
+    // Track this greeting prompt so we can filter it from transcripts
+    session.initialGreetingPrompts.add(greetingText);
+    
     jsonSend(session.modelConn, {
       type: "conversation.item.create",
       item: {
@@ -95,7 +124,7 @@ function sendInitialGreeting(session: Session) {
         content: [
           {
             type: "input_text",
-            text: "Hello, I just answered the phone. Please start the interview.",
+            text: greetingText,
           },
         ],
       },
@@ -132,6 +161,8 @@ export function handleCallConnection(
     // Set rate limiting context
     isRateLimited: jobConfig?.isRateLimited,
     rateLimitReason: jobConfig?.rateLimitReason,
+    // Initialize set to track initial greeting prompts
+    initialGreetingPrompts: new Set(),
   };
 
   sessions.set(sessionId, session);
@@ -735,6 +766,15 @@ function tryConnectModel(sessionKey: string) {
       if (isOpen(session.modelConn)) {
         if (session.isRateLimited) {
           console.log("🚫 Sending rate limit message and preparing to end call");
+          
+          const rateLimitGreetingText = "Hello, I just answered the phone. Please deliver the rate limit message and end the call politely.";
+          
+          // Track this greeting prompt so we can filter it from transcripts
+          if (!session.initialGreetingPrompts) {
+            session.initialGreetingPrompts = new Set();
+          }
+          session.initialGreetingPrompts.add(rateLimitGreetingText);
+          
           jsonSend(session.modelConn, {
             type: "conversation.item.create",
             item: {
@@ -743,7 +783,7 @@ function tryConnectModel(sessionKey: string) {
               content: [
                 {
                   type: "input_text",
-                  text: "Hello, I just answered the phone. Please deliver the rate limit message and end the call politely.",
+                  text: rateLimitGreetingText,
                 },
               ],
             },
@@ -795,7 +835,10 @@ function handleModelMessage(data: RawData, sessionKey: string) {
   const session = sessions.get(sessionKey);
   if (!session) return;
 
-  jsonSend(session.frontendConn, event);
+  // Filter out initial greeting prompts from transcript
+  if (!shouldFilterFromTranscript(event, session)) {
+    jsonSend(session.frontendConn, event);
+  }
 
   switch (event.type) {
     case "input_audio_buffer.speech_started":
