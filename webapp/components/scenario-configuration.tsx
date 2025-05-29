@@ -78,7 +78,12 @@ const ScenarioConfiguration: React.FC<ScenarioConfigurationProps> = ({
       selectedScenario.fields.forEach(field => {
         const value = config[field.key];
         
-        if (field.required && (!value || (typeof value === 'string' && value.trim() === ''))) {
+        if (
+          field.required &&
+          (value === undefined ||
+           value === null ||
+           (typeof value === 'string' && value.trim() === ''))
+        ) {
           errors[field.key] = `${field.label} is required`;
         } else if (value && field.validation) {
           if (field.validation.minLength && value.length < field.validation.minLength) {
