@@ -78,21 +78,16 @@ const ScenarioConfiguration: React.FC<ScenarioConfigurationProps> = ({
       selectedScenario.fields.forEach(field => {
         const value = config[field.key];
         
-        if (
-          field.required &&
-          (value === undefined ||
-           value === null ||
-           (typeof value === 'string' && value.trim() === ''))
-        ) {
+        if (field.required && (!value || (typeof value === 'string' && value.trim() === ''))) {
           errors[field.key] = `${field.label} is required`;
         } else if (value && field.validation) {
-          if (
-            typeof value === 'string' &&
-            field.validation?.minLength &&
-            value.length < field.validation.minLength
-          ) {
+          if (field.validation.minLength && value.length < field.validation.minLength) {
             errors[field.key] = `${field.label} must be at least ${field.validation.minLength} characters`;
           }
+          if (field.validation.maxLength && value.length > field.validation.maxLength) {
+            errors[field.key] = `${field.label} must be less than ${field.validation.maxLength} characters`;
+          }
+          if (field.validation.pattern && !new RegExp(field.validation.pattern).test(value)) {
             errors[field.key] = `${field.label} format is invalid`;
           }
         }
