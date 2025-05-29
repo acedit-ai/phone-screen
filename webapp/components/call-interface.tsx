@@ -60,11 +60,15 @@ const CallInterface = () => {
 
   // Check if configuration is ready
   const selectedScenario = scenarios.find(s => s.id === selectedScenarioId);
-  const isConfigurationReady = selectedScenario && selectedScenario.fields.every(field => {
-    if (!field.required) return true;
-    const value = scenarioConfig[field.key];
-    return value && (typeof value !== 'string' || value.trim() !== '');
-  });
+  const isConfigurationReady =
+    selectedScenario &&
+    selectedScenario.fields.every((field) => {
+      if (!field.required) return true;
+      const value = scenarioConfig[field.key];
+      if (value === undefined || value === null) return false;
+      if (typeof value === "string") return value.trim() !== "";
+      return true; // numbers & booleans (including false) are fine
+    });
 
   // Connect to websocket when call is connected
   useEffect(() => {
