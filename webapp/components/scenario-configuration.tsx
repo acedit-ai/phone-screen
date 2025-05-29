@@ -86,13 +86,13 @@ const ScenarioConfiguration: React.FC<ScenarioConfigurationProps> = ({
         ) {
           errors[field.key] = `${field.label} is required`;
         } else if (value && field.validation) {
-          if (field.validation.minLength && value.length < field.validation.minLength) {
+          if (
+            typeof value === 'string' &&
+            field.validation?.minLength &&
+            value.length < field.validation.minLength
+          ) {
             errors[field.key] = `${field.label} must be at least ${field.validation.minLength} characters`;
           }
-          if (field.validation.maxLength && value.length > field.validation.maxLength) {
-            errors[field.key] = `${field.label} must be less than ${field.validation.maxLength} characters`;
-          }
-          if (field.validation.pattern && !new RegExp(field.validation.pattern).test(value)) {
             errors[field.key] = `${field.label} format is invalid`;
           }
         }
