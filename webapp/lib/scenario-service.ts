@@ -49,9 +49,12 @@ export class ScenarioService {
     }
 
     // Prevent multiple simultaneous requests
+    // Prevent multiple simultaneous requests
     if (this.isLoading) {
-      // Wait for the current request to complete
-      while (this.isLoading) {
+      // Wait for the current request to complete with timeout
+      const maxWait = 30000; // 30 seconds
+      const startTime = Date.now();
+      while (this.isLoading && (Date.now() - startTime) < maxWait) {
         await new Promise(resolve => setTimeout(resolve, 100));
       }
       return this.scenarios;
