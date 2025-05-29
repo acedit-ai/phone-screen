@@ -1,29 +1,8 @@
 import { RawData, WebSocket } from "ws";
 import dedent from "dedent";
 import functions from "./functionHandlers";
-
-interface Session {
-  id: string; // Unique identifier for this session
-  twilioConn?: WebSocket;
-  frontendConn?: WebSocket;
-  modelConn?: WebSocket;
-  streamSid?: string;
-  saved_config?: any;
-  lastAssistantItem?: string;
-  responseStartTimestamp?: number;
-  latestMediaTimestamp?: number;
-  openAIApiKey?: string;
-  // Job configuration
-  jobTitle?: string;
-  company?: string;
-  jobDescription?: string;
-  voice?: string;
-  // Rate limiting context
-  isRateLimited?: boolean;
-  rateLimitReason?: string;
-  // Track initial greeting prompts to filter from transcripts
-  initialGreetingPrompts?: Set<string>;
-}
+import { Session } from "./types";
+import { scenarioRegistry, getScenario, CallScenarioConfig, ScenarioSession } from "./scenarios";
 
 // Map to store multiple sessions, keyed by streamSid (or temporary ID)
 const sessions = new Map<string, Session>();
@@ -66,25 +45,6 @@ function findWaitingFrontendConnection(): WebSocket | undefined {
   return undefined;
 }
 
-// Helper function to convert voice names to proper interviewer names
-function getInterviewerName(voice?: string): string {
-  if (!voice) return "Ashley"; // Default fallback
-  
-  // Capitalize first letter and use as name
-  const capitalizedVoice = voice.charAt(0).toUpperCase() + voice.slice(1);
-  
-  // Map voice names to professional interviewer names
-  const nameMap: { [key: string]: string } = {
-    'Ash': 'Ashley',
-    'Ballad': 'Blake',
-    'Coral': 'Coral',
-    'Sage': 'Sage',
-    'Verse': 'Victoria'
-  };
-  
-  return nameMap[capitalizedVoice] || capitalizedVoice;
-}
-
 // Helper function to check if a message should be filtered from transcripts
 function shouldFilterFromTranscript(event: any, session: Session): boolean {
   // Filter conversation.item.created events for initial greeting prompts
@@ -101,8 +61,8 @@ function shouldFilterFromTranscript(event: any, session: Session): boolean {
   return false;
 }
 
-// Generate interview instructions based on session configuration
-function generateInterviewInstructions(session: Session): string {
+// Generate instructions based on session scenario configuration
+function generateInstructions(session: Session): string {
   // Check if this is a rate-limited call
   if (session.isRateLimited) {
     return dedent`
@@ -121,63 +81,47 @@ function generateInterviewInstructions(session: Session): string {
     `;
   }
 
-  const jobTitle = session.jobTitle || "this position";
-  const company = session.company || "the company";
-  const jobDescription = session.jobDescription || "";
-  const interviewerName = getInterviewerName(session.voice);
-
-  let baseInstructions = dedent`
-    You are ${interviewerName}, a professional AI phone interviewer conducting a technical phone screening. You are interviewing a candidate for the role of ${jobTitle} at ${company}.
-
-    Your role is to:
-    1. Start with a warm, professional greeting and introduce yourself by name: "Hello! Thank you for taking the time to speak with me today. My name is ${interviewerName}, and I'm conducting this phone screening for the ${jobTitle} position at ${company}."
-    2. Ask if they're ready to begin and if they have any questions before starting
-    3. Conduct a comprehensive interview covering:
-       - Background and experience relevant to the role
-       - Technical skills and knowledge
-       - Problem-solving abilities
-       - Cultural fit and motivation
-       - Questions about their interest in ${company}
-    4. Ask thoughtful follow-up questions based on their responses
-    5. Keep the conversation focused and professional
-    6. The interview should last 10-15 minutes
-    7. Be encouraging but thorough in your evaluation
-
-    Interview Guidelines:
-    - Ask open-ended questions that allow the candidate to demonstrate their expertise
-    - Listen carefully and ask relevant follow-up questions
-    - Maintain a professional but friendly tone
-    - Cover both technical and behavioral aspects
-    - End with asking if they have any questions for you
-
-    Remember: You are ${interviewerName}. Always refer to yourself by this name when introducing yourself or when the candidate asks who they're speaking with.
-  `;
-
-  // Add specific job description context if available
-  if (jobDescription.trim()) {
-    baseInstructions += dedent`
-
-      Job Context:
-      ${jobDescription.trim()}
-
-      Use this job description to tailor your questions to the specific requirements and responsibilities mentioned.
-    `;
+  // Use scenario-based instruction generation
+  if (session.scenario) {
+    try {
+      const scenario = getScenario(session.scenario.scenarioId);
+      return scenario.generateInstructions(session.scenario.config, session.scenario.voice);
+    } catch (error) {
+      console.error("❌ Error generating scenario instructions:", error);
+      // Fallback to default scenario
+      const defaultScenario = scenarioRegistry.getDefaultScenario();
+      if (defaultScenario) {
+        return defaultScenario.generateInstructions(session.scenario.config, session.scenario.voice);
+      }
+    }
   }
 
-  baseInstructions += dedent`
-
-    Begin by greeting the candidate and introducing yourself as ${interviewerName}, then explain the purpose of the call. Ask them if they're ready to start the interview, then proceed with your questions. Make this feel like a real, professional interview experience.
+  // Fallback instructions if no scenario is configured
+  return dedent`
+    You are a professional AI assistant conducting a phone call. 
+    Please have a natural, helpful conversation with the caller.
+    Be polite, professional, and responsive to their needs.
   `;
-
-  return baseInstructions;
 }
 
 // Helper function to send initial greeting
 function sendInitialGreeting(session: Session) {
   if (session.modelConn && isOpen(session.modelConn)) {
-    console.log("🎤 Sending initial greeting to start interview");
+    console.log("🎤 Sending initial greeting to start call");
     
-    const greetingText = "Hello, I just answered the phone. Please start the interview.";
+    let greetingText = "Hello, I just answered the phone. Please start the conversation.";
+    
+    // Use scenario-specific greeting if available
+    if (session.scenario) {
+      try {
+        const scenario = getScenario(session.scenario.scenarioId);
+        if (scenario.generateInitialGreeting) {
+          greetingText = scenario.generateInitialGreeting(session.scenario.config);
+        }
+      } catch (error) {
+        console.error("❌ Error generating scenario greeting:", error);
+      }
+    }
     
     // Initialize the set if it doesn't exist
     if (!session.initialGreetingPrompts) {
@@ -207,10 +151,9 @@ function sendInitialGreeting(session: Session) {
 export function handleCallConnection(
   ws: WebSocket,
   openAIApiKey: string,
-  jobConfig?: {
-    jobTitle?: string;
-    company?: string;
-    jobDescription?: string;
+  scenarioConfig?: {
+    scenarioId?: string;
+    config?: CallScenarioConfig;
     voice?: string;
     isRateLimited?: boolean;
     rateLimitReason?: string;
@@ -224,24 +167,31 @@ export function handleCallConnection(
     id: sessionId,
     twilioConn: ws,
     openAIApiKey,
-    // Set job configuration immediately if provided
-    jobTitle: jobConfig?.jobTitle,
-    company: jobConfig?.company,
-    jobDescription: jobConfig?.jobDescription,
-    voice: jobConfig?.voice,
     // Set rate limiting context
-    isRateLimited: jobConfig?.isRateLimited,
-    rateLimitReason: jobConfig?.rateLimitReason,
+    isRateLimited: scenarioConfig?.isRateLimited,
+    rateLimitReason: scenarioConfig?.rateLimitReason,
     // Initialize set to track initial greeting prompts
     initialGreetingPrompts: new Set(),
   };
 
+  // Set scenario configuration if provided
+  if (scenarioConfig?.scenarioId && scenarioConfig?.config) {
+    session.scenario = {
+      scenarioId: scenarioConfig.scenarioId,
+      config: scenarioConfig.config,
+      voice: scenarioConfig.voice,
+      isRateLimited: scenarioConfig.isRateLimited,
+      rateLimitReason: scenarioConfig.rateLimitReason,
+      initialGreetingPrompts: new Set(),
+    };
+  }
+
   sessions.set(sessionId, session);
   console.log(`📞 Created new session: ${sessionId}`);
 
-  if (jobConfig && (jobConfig.jobTitle || jobConfig.company)) {
+  if (session.scenario) {
     console.log(
-      `📋 Session created with job config: ${jobConfig.jobTitle} at ${jobConfig.company}`
+      `📋 Session created with scenario: ${session.scenario.scenarioId}`
     );
   }
 
@@ -541,27 +491,31 @@ function handleFrontendMessage(data: RawData, ws: WebSocket) {
 }
 
 function handleFrontendMessageForSession(msg: any, session: Session) {
-  // Handle job configuration
-  if (msg.type === "job.configuration") {
+  // Handle scenario configuration
+  if (msg.type === "scenario.configuration") {
     console.log(
-      `📋 Received job configuration for session ${
+      `📋 Received scenario configuration for session ${
         session.streamSid || session.id
       }:`,
       msg
     );
     
-    // Update session with job configuration
-    session.jobTitle = msg.jobTitle;
-    session.company = msg.company;
-    session.jobDescription = msg.jobDescription;
-    session.voice = msg.voice;
+    // Update session with scenario configuration
+    session.scenario = {
+      scenarioId: msg.scenarioId || 'job-interview', // Default to job-interview for backward compatibility
+      config: msg.config || {},
+      voice: msg.voice,
+      isRateLimited: session.isRateLimited,
+      rateLimitReason: session.rateLimitReason,
+      initialGreetingPrompts: session.initialGreetingPrompts || new Set(),
+    };
 
     // If the session already has an OpenAI connection, update it with the new configuration
     if (session.modelConn && isOpen(session.modelConn)) {
-      console.log("🔄 Updating existing OpenAI session with new job configuration");
+      console.log("🔄 Updating existing OpenAI session with new scenario configuration");
       
-      // Generate updated interview instructions with the new job configuration
-      const updatedInstructions = generateInterviewInstructions(session);
+      // Generate updated instructions with the new scenario configuration
+      const updatedInstructions = generateInstructions(session);
 
       // Send complete session update with new voice AND updated instructions
       const sessionUpdate = {
@@ -578,24 +532,54 @@ function handleFrontendMessageForSession(msg: any, session: Session) {
         },
       };
       
-      console.log("📝 Sending updated instructions with job details:", {
-        jobTitle: session.jobTitle,
-        company: session.company,
-        voice: session.voice
+      console.log("📝 Sending updated instructions with scenario details:", {
+        scenarioId: session.scenario.scenarioId,
+        voice: session.scenario.voice
       });
       
       jsonSend(session.modelConn, sessionUpdate);
       
-      // If this is the first time we're receiving job configuration and the conversation hasn't started,
-      // send the initial greeting to start the interview
-      if (session.jobTitle && session.company && !session.lastAssistantItem) {
-        console.log("🎤 Job configuration received - starting interview");
-        setTimeout(() => {
-          sendInitialGreeting(session);
-        }, 500); // Small delay to ensure the session update is processed first
+      // Check if we should auto-start the conversation
+      if (session.scenario && !session.lastAssistantItem) {
+        try {
+          const scenario = getScenario(session.scenario.scenarioId);
+          if (scenario.shouldAutoStart && scenario.shouldAutoStart(session.scenario.config)) {
+            console.log("🎤 Scenario configuration received - starting conversation");
+            setTimeout(() => {
+              sendInitialGreeting(session);
+            }, 500); // Small delay to ensure the session update is processed first
+          }
+        } catch (error) {
+          console.error("❌ Error checking auto-start for scenario:", error);
+        }
       }
     }
     
+    return;
+  }
+
+  // Handle legacy job configuration for backward compatibility
+  if (msg.type === "job.configuration") {
+    console.log(
+      `📋 Received legacy job configuration for session ${
+        session.streamSid || session.id
+      } - converting to scenario format`
+    );
+    
+    // Convert job configuration to scenario format
+    const scenarioConfig = {
+      type: "scenario.configuration",
+      scenarioId: "job-interview",
+      config: {
+        jobTitle: msg.jobTitle,
+        company: msg.company,
+        jobDescription: msg.jobDescription,
+      },
+      voice: msg.voice
+    };
+    
+    // Process as scenario configuration
+    handleFrontendMessageForSession(scenarioConfig, session);
     return;
   }
 
@@ -667,15 +651,14 @@ function tryConnectModel(sessionKey: string) {
     );
     const config = session.saved_config || {};
 
-    // Generate dynamic interview instructions based on job configuration
-    const interviewInstructions = generateInterviewInstructions(session);
+    // Generate dynamic instructions based on scenario configuration
+    const instructions = generateInstructions(session);
 
     console.log("📝 Generating initial instructions for session:", {
       sessionKey,
-      jobTitle: session.jobTitle,
-      company: session.company,
-      voice: session.voice,
-      hasJobConfig: !!(session.jobTitle && session.company)
+      scenarioId: session.scenario?.scenarioId,
+      voice: session.scenario?.voice,
+      hasScenario: !!session.scenario
     });
 
     jsonSend(session.modelConn, {
@@ -683,11 +666,11 @@ function tryConnectModel(sessionKey: string) {
       session: {
         modalities: ["text", "audio"],
         turn_detection: { type: "server_vad" },
-        voice: session.voice || "ash",
+        voice: session.scenario?.voice || "ash",
         input_audio_transcription: { model: "gpt-4o-mini-transcribe" },
         input_audio_format: "g711_ulaw",
         output_audio_format: "g711_ulaw",
-        instructions: interviewInstructions,
+        instructions: instructions,
         ...config,
       },
     });
@@ -729,14 +712,24 @@ function tryConnectModel(sessionKey: string) {
             }
           }, 15000); // Give 15 seconds for the message to be delivered
         } else {
-          // For normal calls, only start if we have job configuration
-          // Otherwise, wait for job configuration to be received
-          if (session.jobTitle && session.company) {
-            console.log("🎤 Sending initial greeting to start interview (job config available)");
-            sendInitialGreeting(session);
+          // For normal calls, check if we should auto-start based on scenario
+          if (session.scenario) {
+            try {
+              const scenario = getScenario(session.scenario.scenarioId);
+              if (scenario.shouldAutoStart && scenario.shouldAutoStart(session.scenario.config)) {
+                console.log("🎤 Sending initial greeting to start conversation (scenario config available)");
+                sendInitialGreeting(session);
+              } else {
+                console.log("⏳ Waiting for scenario configuration before starting conversation");
+                // The greeting will be sent when scenario configuration is received
+              }
+            } catch (error) {
+              console.error("❌ Error checking scenario auto-start:", error);
+              console.log("⏳ Waiting for scenario configuration before starting conversation");
+            }
           } else {
-            console.log("⏳ Waiting for job configuration before starting interview");
-            // The greeting will be sent when job configuration is received
+            console.log("⏳ Waiting for scenario configuration before starting conversation");
+            // The greeting will be sent when scenario configuration is received
           }
         }
       }

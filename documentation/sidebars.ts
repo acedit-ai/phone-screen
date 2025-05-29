@@ -13,15 +13,26 @@ import type {SidebarsConfig} from '@docusaurus/plugin-content-docs';
  Create as many sidebars as you want.
  */
 const sidebars: SidebarsConfig = {
-  // Organized sidebar with logical groupings
+  // Comprehensive sidebar with logical groupings for the modular platform
   tutorialSidebar: [
-    'intro',
+    'index',
     'quick-start',
     {
       type: 'category',
       label: '🚀 Getting Started',
       items: [
         'getting-started/environment-setup',
+      ],
+    },
+    {
+      type: 'category',
+      label: '🔌 Scenario System',
+      items: [
+        'scenarios/overview',
+        'scenarios/creating-scenarios',
+        'scenarios/api-reference',
+        'scenarios/best-practices',
+        'scenarios/examples',
       ],
     },
     {
@@ -40,7 +51,6 @@ const sidebars: SidebarsConfig = {
         'configuration/neondb-setup',
       ],
     },
-    'customization',
     {
       type: 'category',
       label: '🚀 Deployment',
@@ -53,6 +63,7 @@ const sidebars: SidebarsConfig = {
       type: 'category',
       label: '🛠️ Development',
       items: [
+        'developer-guide',
         'development/workflow',
       ],
     },

@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import TopBar from "@/components/top-bar";
-import JobConfiguration from "@/components/job-configuration";
+import ScenarioConfiguration, { ScenarioSchema, ScenarioConfig } from "@/components/scenario-configuration";
 import Transcript from "@/components/transcript";
 import PhoneInputComponent from "@/components/phone-input";
 import { Item } from "@/components/types";
@@ -12,6 +12,7 @@ import { Phone, Zap, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import { makeVerifiedPost } from "@/lib/api";
+import { scenarioService } from "@/lib/scenario-service";
 
 type CallStatus = "idle" | "calling" | "ringing" | "connected" | "ended";
 
@@ -22,14 +23,52 @@ const CallInterface = () => {
   const [currentCallSid, setCurrentCallSid] = useState<string | null>(null);
   const timerRef = useRef<number | null>(null);
 
-  // Job configuration state
-  const [jobTitle, setJobTitle] = useState("");
-  const [company, setCompany] = useState("");
-  const [jobDescription, setJobDescription] = useState("");
+  // Scenario system state
+  const [scenarios, setScenarios] = useState<ScenarioSchema[]>([]);
+  const [selectedScenarioId, setSelectedScenarioId] = useState<string>("");
+  const [scenarioConfig, setScenarioConfig] = useState<ScenarioConfig>({});
   const [voice, setVoice] = useState("ash");
+  const [isLoadingScenarios, setIsLoadingScenarios] = useState(true);
 
-  // Check if basic configuration is complete
-  const isConfigurationReady = jobTitle.trim() !== "" && company.trim() !== "";
+  // Load scenarios on component mount
+  useEffect(() => {
+    const loadScenarios = async () => {
+      try {
+        setIsLoadingScenarios(true);
+        const availableScenarios = await scenarioService.getScenarios();
+        setScenarios(availableScenarios);
+        
+        // Set default scenario to job-interview if available
+        if (availableScenarios.length > 0) {
+          const defaultScenario = availableScenarios.find(s => s.id === 'job-interview') || availableScenarios[0];
+          setSelectedScenarioId(defaultScenario.id);
+          
+          // Set default voice from scenario if available
+          if (defaultScenario.voiceOptions && defaultScenario.voiceOptions.length > 0) {
+            setVoice(defaultScenario.voiceOptions[0].value);
+          }
+        }
+      } catch (error) {
+        console.error("Failed to load scenarios:", error);
+      } finally {
+        setIsLoadingScenarios(false);
+      }
+    };
+
+    loadScenarios();
+  }, []);
+
+  // Check if configuration is ready
+  const selectedScenario = scenarios.find(s => s.id === selectedScenarioId);
+  const isConfigurationReady =
+    selectedScenario &&
+    selectedScenario.fields.every((field) => {
+      if (!field.required) return true;
+      const value = scenarioConfig[field.key];
+      if (value === undefined || value === null) return false;
+      if (typeof value === "string") return value.trim() !== "";
+      return true; // numbers & booleans (including false) are fine
+    });
 
   // Connect to websocket when call is connected
   useEffect(() => {
@@ -70,24 +109,23 @@ const CallInterface = () => {
       }
 
       console.log("Connecting to logs websocket:", websocketUrl);
-      console.log("Job configuration ready:", { jobTitle, company, jobDescription, voice });
+      console.log("Scenario configuration ready:", { scenarios, selectedScenarioId, scenarioConfig, voice });
 
       const newWs = new WebSocket(websocketUrl);
 
       newWs.onopen = () => {
         console.log("Connected to logs websocket");
 
-        // Send job configuration immediately if ready
+        // Send scenario configuration immediately if ready
         if (isConfigurationReady && newWs.readyState === WebSocket.OPEN) {
-          const jobConfig = {
-            type: "job.configuration",
-            jobTitle,
-            company,
-            jobDescription,
+          const scenarioMessage = {
+            type: "scenario.configuration",
+            scenarioId: selectedScenarioId,
+            config: scenarioConfig,
             voice,
           };
-          console.log("Sending initial job configuration:", jobConfig);
-          newWs.send(JSON.stringify(jobConfig));
+          console.log("Sending initial scenario configuration:", scenarioMessage);
+          newWs.send(JSON.stringify(scenarioMessage));
 
           // Also send session update with voice
           const sessionUpdate = {
@@ -108,15 +146,14 @@ const CallInterface = () => {
         // Also try again after a delay to ensure session association
         setTimeout(() => {
           if (isConfigurationReady && newWs.readyState === WebSocket.OPEN) {
-            const jobConfig = {
-              type: "job.configuration",
-              jobTitle,
-              company,
-              jobDescription,
+            const scenarioMessage = {
+              type: "scenario.configuration",
+              scenarioId: selectedScenarioId,
+              config: scenarioConfig,
               voice,
             };
-            console.log("Retry sending job configuration:", jobConfig);
-            newWs.send(JSON.stringify(jobConfig));
+            console.log("Retry sending scenario configuration:", scenarioMessage);
+            newWs.send(JSON.stringify(scenarioMessage));
           }
         }, 1500);
       };
@@ -130,19 +167,18 @@ const CallInterface = () => {
           data.type === "call.status_changed" &&
           data.status === "connected"
         ) {
-          console.log("Call session connected, ensuring job config is sent...");
-          // Retry sending job config when we know the session is connected
+          console.log("Call session connected, ensuring scenario config is sent...");
+          // Retry sending scenario config when we know the session is connected
           if (isConfigurationReady && newWs.readyState === WebSocket.OPEN) {
             setTimeout(() => {
-              const jobConfig = {
-                type: "job.configuration",
-                jobTitle,
-                company,
-                jobDescription,
+              const scenarioMessage = {
+                type: "scenario.configuration",
+                scenarioId: selectedScenarioId,
+                config: scenarioConfig,
                 voice,
               };
-              console.log("Retrying job configuration send:", jobConfig);
-              newWs.send(JSON.stringify(jobConfig));
+              console.log("Retrying scenario configuration send:", scenarioMessage);
+              newWs.send(JSON.stringify(scenarioMessage));
             }, 500);
           }
         }
@@ -182,9 +218,9 @@ const CallInterface = () => {
     callStatus,
     ws,
     isConfigurationReady,
-    jobTitle,
-    company,
-    jobDescription,
+    scenarios,
+    selectedScenarioId,
+    scenarioConfig,
     voice,
   ]);
 
@@ -210,11 +246,10 @@ const CallInterface = () => {
 
       const response = await makeVerifiedPost("/api/call/outbound", {
         phoneNumber,
-        // Include job configuration in the call request
-        jobConfiguration: {
-          jobTitle,
-          company,
-          jobDescription,
+        // Include scenario configuration in the call request
+        scenarioConfiguration: {
+          scenarioId: selectedScenarioId,
+          scenarioConfig,
           voice,
         },
       });
@@ -321,18 +356,45 @@ const CallInterface = () => {
     console.log("State reset for new practice session");
   };
 
+  // Get display text for current scenario
+  const getScenarioDisplayText = () => {
+    if (!selectedScenario) return { title: "Call", description: "AI-powered call" };
+    
+    if (selectedScenario.id === 'job-interview') {
+      const jobTitle = scenarioConfig.jobTitle || "this position";
+      const company = scenarioConfig.company || "the company";
+      return {
+        title: `${jobTitle} Interview`,
+        description: `Interviewing for ${jobTitle} at ${company}`
+      };
+    }
+    
+    if (selectedScenario.id === 'customer-service') {
+      const companyName = scenarioConfig.companyName || "the company";
+      return {
+        title: `${companyName} Support`,
+        description: `Customer service call with ${companyName}`
+      };
+    }
+    
+    return {
+      title: selectedScenario.name,
+      description: selectedScenario.description
+    };
+  };
+
   const renderContent = () => {
     if (callStatus === "connected") {
+      const displayText = getScenarioDisplayText();
+      
       return (
         <div className="max-w-4xl mx-auto space-y-6">
           <div className="text-center">
             <h2 className="text-2xl font-bold text-gray-900 mb-2">
-              Interview in Progress
+              Call in Progress
             </h2>
             <p className="text-gray-600">
-              Interviewing for{" "}
-              <span className="font-medium text-purple-600">{jobTitle}</span> at{" "}
-              <span className="font-medium text-purple-600">{company}</span>
+              {displayText.description}
             </p>
           </div>
 
@@ -350,6 +412,8 @@ const CallInterface = () => {
     }
 
     if (callStatus === "calling" || callStatus === "ringing") {
+      const displayText = getScenarioDisplayText();
+      
       return (
         <div className="max-w-2xl mx-auto text-center space-y-6">
           <div>
@@ -359,9 +423,7 @@ const CallInterface = () => {
                 : "Calling Your Phone"}
             </h2>
             <p className="text-gray-600">
-              Please answer your phone to start the interview for{" "}
-              <span className="font-medium text-purple-600">{jobTitle}</span> at{" "}
-              <span className="font-medium text-purple-600">{company}</span>
+              Please answer your phone to start the call: {displayText.description}
             </p>
           </div>
 
@@ -396,15 +458,14 @@ const CallInterface = () => {
               </div>
             </div>
             <h2 className="text-3xl font-bold text-gray-900">
-              Interview Practice Complete!
+              Call Practice Complete!
             </h2>
             <p className="text-lg text-gray-600">
-              Great job practicing! You're one step closer to landing your dream
-              role.
+              Great job practicing! You're one step closer to achieving your goals.
             </p>
           </div>
 
-          {/* Post-Interview CTA */}
+          {/* Post-Call CTA */}
           <Card className="border-2 border-purple-200 bg-gradient-to-br from-purple-50 to-indigo-50">
             <CardContent className="p-8">
               <div className="text-center space-y-6">
@@ -422,12 +483,12 @@ const CallInterface = () => {
                   <p className="text-gray-600 max-w-2xl mx-auto">
                     This basic practice was just the start! Acedit offers{" "}
                     <strong>advanced mock interviews</strong> that simulate real
-                    job scenarios with personalized response recommendations.
+                    scenarios with personalized response recommendations.
                     Plus, get
                     <strong>
                       {" "}
                       real-time AI coaching during your actual Zoom, Teams, or
-                      Google Meet interviews
+                      Google Meet calls
                     </strong>
                     .
                   </p>
@@ -442,7 +503,7 @@ const CallInterface = () => {
                           Advanced Mock Interviews
                         </div>
                         <div className="text-gray-600">
-                          Realistic job scenarios with personalized response
+                          Realistic scenarios with personalized response
                           suggestions
                         </div>
                       </div>
@@ -453,10 +514,10 @@ const CallInterface = () => {
                       </div>
                       <div>
                         <div className="font-medium text-gray-900">
-                          Live Interview Assistance
+                          Live Call Assistance
                         </div>
                         <div className="text-gray-600">
-                          Real-time coaching during actual video interviews
+                          Real-time coaching during actual video calls
                         </div>
                       </div>
                     </div>
@@ -474,7 +535,7 @@ const CallInterface = () => {
                     <div className="text-2xl font-bold text-purple-600">
                       3,000+
                     </div>
-                    <div className="text-gray-600">Jobs Landed</div>
+                    <div className="text-gray-600">Goals Achieved</div>
                   </div>
                   <div className="flex flex-col items-center space-y-2 p-4 bg-white rounded-lg">
                     <div className="text-2xl font-bold text-purple-600">
@@ -521,7 +582,7 @@ const CallInterface = () => {
       <div className="max-w-7xl mx-auto space-y-8">
         <div className="text-center space-y-4">
           <h2 className="text-3xl font-bold text-gray-900">
-            Practice Phone Interviews with AI
+            Practice AI-Powered Calls
           </h2>
           <div className="text-lg text-gray-600 max-w-2xl mx-auto">
             <p className="mb-2">Get started with this free AI practice tool.</p>
@@ -535,25 +596,25 @@ const CallInterface = () => {
               >
                 Acedit
               </a>{" "}
-              offers advanced mock interviews that simulate real job scenarios,
-              plus real-time AI coaching during your actual video interviews.
+              offers advanced mock interviews that simulate real scenarios,
+              plus real-time AI coaching during your actual video calls.
             </p>
           </div>
         </div>
 
         {/* Responsive grid layout: stacked on mobile, side-by-side on large screens */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-12 items-start">
-          {/* Left column: Job Configuration */}
+          {/* Left column: Scenario Configuration */}
           <div className="space-y-6">
-            <JobConfiguration
-              jobTitle={jobTitle}
-              company={company}
-              jobDescription={jobDescription}
+            <ScenarioConfiguration
+              scenarios={scenarios}
+              selectedScenarioId={selectedScenarioId}
+              config={scenarioConfig}
               voice={voice}
-              onJobTitleChange={setJobTitle}
-              onCompanyChange={setCompany}
-              onJobDescriptionChange={setJobDescription}
+              onScenarioChange={setSelectedScenarioId}
+              onConfigChange={setScenarioConfig}
               onVoiceChange={setVoice}
+              isLoading={isLoadingScenarios}
             />
           </div>
 
@@ -578,15 +639,15 @@ const CallInterface = () => {
                         <Phone className="h-4 w-4 text-gray-400" />
                       </div>
                       <h3 className="text-lg font-medium text-gray-900">
-                        Start Your Interview
+                        Start Your Call
                       </h3>
                     </div>
                     <p className="text-gray-600 text-sm mb-4">
-                      Complete the job details to enable phone input and verification
+                      Complete the scenario details to enable phone input and verification
                     </p>
                     <div className="inline-flex items-center gap-2 px-4 py-2 bg-purple-50 text-purple-700 rounded-full text-sm font-medium">
                       <div className="w-2 h-2 bg-purple-400 rounded-full animate-pulse"></div>
-                      Complete the job details to continue
+                      Complete the scenario details to continue
                     </div>
                   </div>
                 </CardContent>
@@ -625,16 +686,16 @@ const CallInterface = () => {
             <div className="text-center space-y-4 sm:space-y-6">
               <div className="space-y-2">
                 <h3 className="text-xl sm:text-2xl font-bold text-gray-900">
-                  Ready for Advanced Mock Interviews & Real Interview Success?
+                  Ready for Advanced Mock Interviews & Real Call Success?
                 </h3>
                 <p className="text-sm sm:text-base text-gray-600 max-w-3xl mx-auto">
                   This basic phone practice is just the beginning. Acedit
                   provides advanced mock interviews with personalized response
                   recommendations, plus real-time AI coaching during actual
-                  interviews.
+                  calls.
                   <span className="hidden sm:inline">
                     {" "}
-                    Join 3,800+ candidates who landed jobs!
+                    Join 3,800+ candidates who achieved their goals!
                   </span>
                 </p>
               </div>
@@ -651,7 +712,7 @@ const CallInterface = () => {
                 </div>
                 <div className="flex items-center justify-center gap-2">
                   <div className="w-2 h-2 bg-purple-500 rounded-full"></div>
-                  <span>Real-time interview coaching</span>
+                  <span>Real-time call coaching</span>
                 </div>
               </div>
 

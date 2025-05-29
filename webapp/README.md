@@ -7,10 +7,43 @@ A Next.js web application that integrates OpenAI's Realtime API with Twilio Voic
 - ✅ **Free AI Phone Calls** - Make outbound calls powered by OpenAI's Realtime API
 - ✅ **Multi-Region Support** - US, Australia, and India phone numbers
 - ✅ **Real-time Conversations** - Natural voice interactions with AI
+- ✅ **Modular Scenario System** - Plugin-based architecture for different call types
 - ✅ **Job Interview Practice** - Configure job titles, companies, and descriptions
+- ✅ **Scenario Filtering** - Configure which scenarios are shown in the UI
 - ✅ **Rate Limiting** - Built-in protection against abuse with configurable limits
 - 🆕 **Inline Bot Protection** - Cloudflare Turnstile verification within the call interface
 - 🆕 **Session Management** - Secure token-based access control with 30-minute expiry
+
+## Scenario Configuration
+
+### Single Scenario Deployment
+
+For focused deployments (like job interview phone screening), you can configure the UI to show only specific scenarios:
+
+```bash
+# Show only job interview scenario
+NEXT_PUBLIC_ALLOWED_SCENARIOS=job-interview
+
+# Show multiple specific scenarios
+NEXT_PUBLIC_ALLOWED_SCENARIOS=job-interview,customer-service
+
+# Show all scenarios (default behavior)
+# NEXT_PUBLIC_ALLOWED_SCENARIOS=
+```
+
+When only one scenario is configured:
+- The scenario selector dropdown is hidden
+- The UI shows a clean, focused interface for that specific use case
+- All functionality remains the same, just streamlined for single-purpose deployments
+
+### Available Scenarios
+
+- `job-interview` - Job Interview Practice
+- `customer-service` - Customer Service Training  
+- `public-speaking` - Public Speaking Practice
+- `language-learning` - Language Learning Conversations
+- `negotiation-training` - Business Negotiation Training
+- `acting-coach` - Acting & Performance Coach
 
 ## Security Features
 
@@ -39,6 +72,9 @@ TWILIO_PHONE_NUMBER_IN=+91234567890
 
 # WebSocket Server URL (ngrok or production URL)
 NEXT_PUBLIC_WEBSOCKET_SERVER_URL=wss://your-ngrok-url.ngrok.io
+
+# Scenario Filtering (Optional)
+NEXT_PUBLIC_ALLOWED_SCENARIOS=job-interview
 
 # Cloudflare Turnstile (Bot Protection)
 NEXT_PUBLIC_TURNSTILE_SITE_KEY=your_turnstile_site_key

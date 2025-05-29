@@ -32,16 +32,51 @@ git push origin main
    - Add your domain in Vercel dashboard
    - Update DNS records as instructed
 
-### Backend: Railway/Render
+### Backend: Fly.io (Recommended)
 
-**Option A: Railway (Recommended)**
+The project includes pre-configured Fly.io deployment with GitHub Actions.
+
+**Option A: Automatic Deployment (Recommended)**
+
+1. **Install Fly.io CLI**:
+```bash
+curl -L https://fly.io/install.sh | sh
+```
+
+2. **Login to Fly.io**:
+```bash
+flyctl auth login
+```
+
+3. **Deploy from websocket-server directory**:
+```bash
+cd websocket-server
+flyctl launch
+```
+
+4. **Set environment variables**:
+```bash
+flyctl secrets set OPENAI_API_KEY="your-openai-key"
+flyctl secrets set TWILIO_ACCOUNT_SID="your-twilio-sid"
+flyctl secrets set TWILIO_AUTH_TOKEN="your-twilio-token"
+flyctl secrets set NODE_ENV="production"
+```
+
+5. **Deploy**:
+```bash
+flyctl deploy
+```
+
+**Automatic Deployments**: The included GitHub Actions will automatically deploy on every push to main branch.
+
+**Option B: Railway** (Alternative)
 
 1. **Connect GitHub repo** at [railway.app](https://railway.app)
 2. **Select websocket-server** folder as root
 3. **Add environment variables** (see below)
 4. **Deploy automatically** on every push
 
-**Option B: Render**
+**Option C: Render** (Alternative)
 
 1. **Connect GitHub repo** at [render.com](https://render.com)
 2. **Create new Web Service**
@@ -64,12 +99,29 @@ UPSTASH_REDIS_REST_TOKEN="your-token"
 NEXT_PUBLIC_TURNSTILE_SITE_KEY="your-site-key"
 TURNSTILE_SECRET_KEY="your-secret-key"
 
-# WebSocket URL (production)
-NEXT_PUBLIC_WS_URL="wss://your-backend.railway.app"
+# WebSocket URL (Fly.io deployment)
+NEXT_PUBLIC_WEBSOCKET_SERVER_URL="https://your-app-name.fly.dev"
+
+# Scenario Filtering (Optional)
+NEXT_PUBLIC_ALLOWED_SCENARIOS="job-interview"
 ```
 
-### Backend (.env.production)
+### Backend (.env.production or Fly.io Secrets)
 
+For Fly.io, use `flyctl secrets set` instead of .env files:
+
+```bash
+# Set via Fly.io CLI
+flyctl secrets set OPENAI_API_KEY="sk-your-production-key"
+flyctl secrets set TWILIO_ACCOUNT_SID="your-twilio-sid"
+flyctl secrets set TWILIO_AUTH_TOKEN="your-twilio-token"
+flyctl secrets set NODE_ENV="production"
+
+# Optional: Set allowed origins for CORS
+flyctl secrets set ALLOWED_ORIGINS="https://your-domain.com,https://your-domain.vercel.app"
+```
+
+**Alternative (.env for other platforms)**:
 ```bash
 # OpenAI
 OPENAI_API_KEY="sk-your-production-key"
@@ -122,9 +174,44 @@ cd webapp && npx prisma db push
 
 ## WebSocket Server Production Setup
 
-### Dockerfile
+### Fly.io Configuration (Recommended)
 
-Create `websocket-server/Dockerfile`:
+The project includes a pre-configured `fly.toml` file:
+
+```toml
+# websocket-server/fly.toml
+app = 'your-app-name'
+primary_region = 'syd'  # Choose your preferred region
+
+[build]
+
+[http_service]
+  internal_port = 8081
+  force_https = true
+  auto_stop_machines = 'stop'
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ['app']
+
+[[vm]]
+  memory = '1gb'
+  cpu_kind = 'shared'
+  cpus = 1
+```
+
+**GitHub Actions Setup**:
+
+The project includes automatic deployment workflows:
+- `deploy.yml`: Deploys to production on main branch pushes
+- `pr-preview.yml`: Creates preview apps for pull requests
+
+To enable automatic deployments:
+1. Set `FLY_API_TOKEN` in GitHub repository secrets
+2. Set `FLY_ORG` in GitHub repository secrets (for PR previews)
+
+### Alternative: Dockerfile
+
+For other platforms, create `websocket-server/Dockerfile`:
 
 ```dockerfile
 FROM node:18-alpine
@@ -433,15 +520,15 @@ curl https://your-backend.com/health
 
 ### Estimated Monthly Costs
 
-**Minimal Setup** (~$25/month):
+**Minimal Setup** (~$15-25/month):
 - Vercel: Free (Hobby plan)
-- Railway: $5-10 (WebSocket server)
+- Fly.io: $0-5 (shared-cpu-1x, 1GB RAM, auto-scale to zero)
 - Neon: Free (1GB database)
 - Twilio: $1 + usage
 
-**Production Setup** (~$100/month):
+**Production Setup** (~$75-100/month):
 - Vercel Pro: $20
-- Railway Pro: $20-40
+- Fly.io: $15-30 (dedicated resources, multiple regions)
 - Database: $15-25
 - Twilio: $1 + usage
 - Monitoring: $5-15
@@ -449,9 +536,83 @@ curl https://your-backend.com/health
 ### Cost Reduction Tips
 
 1. **Use free tiers** when possible
-2. **Monitor usage** with alerts
-3. **Optimize database queries** to reduce load
-4. **Cache frequently accessed data**
-5. **Use CDN** for static assets
+2. **Configure auto-scaling** on Fly.io (scale to zero when idle)
+3. **Monitor usage** with alerts
+4. **Optimize database queries** to reduce load
+5. **Cache frequently accessed data**
+6. **Use CDN** for static assets
+7. **Choose regions wisely** to minimize latency and costs
 
-Need help with deployment? Check our [deployment examples](https://github.com/acedit-ai/phone-screen-examples/tree/main/deployment) or [contact support](mailto:support@acedit.ai)! 
+Need help with deployment? Check our [deployment examples](https://github.com/acedit-ai/phone-screen-examples/tree/main/deployment) or [contact support](mailto:support@acedit.ai)!
+
+## Fly.io Management
+
+### Common Commands
+
+```bash
+# Check app status
+flyctl status
+
+# View logs
+flyctl logs
+
+# Scale app (set minimum instances)
+flyctl scale count 1
+
+# Update machine resources
+flyctl scale memory 2gb
+
+# List secrets
+flyctl secrets list
+
+# Update a secret
+flyctl secrets set OPENAI_API_KEY="new-key"
+
+# Open app in browser
+flyctl open
+
+# Connect to app console
+flyctl ssh console
+
+# View metrics
+flyctl metrics
+```
+
+### Monitoring
+
+```bash
+# Real-time logs
+flyctl logs -f
+
+# App dashboard
+flyctl dashboard
+
+# Health checks
+curl https://your-app.fly.dev/health
+```
+
+### Scaling
+
+```bash
+# Auto-scale configuration (already in fly.toml)
+min_machines_running = 0    # Scale to zero when idle
+auto_start_machines = true  # Auto-start on requests
+auto_stop_machines = 'stop' # Stop when idle
+
+# Manual scaling
+flyctl scale count 2        # Run 2 instances minimum
+flyctl scale count 0        # Scale to zero
+```
+
+## Monitoring & Logging
+
+```bash
+# Real-time logs
+flyctl logs -f
+
+# App dashboard
+flyctl dashboard
+
+# Health checks
+curl https://your-app.fly.dev/health
+``` 

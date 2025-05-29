@@ -9,6 +9,7 @@ import {
   handleFrontendConnection,
 } from "./sessionManager";
 import functions from "./functionHandlers";
+import { initializeScenarios } from "./scenarios";
 
 // Rate limiting imports
 import { createRateLimitConfig, describeRateLimits } from "./config/rateLimiting";
@@ -27,6 +28,9 @@ import {
 import { requireVerification, optionalVerification } from "./middleware/verificationMiddleware";
 
 dotenv.config();
+
+// Initialize scenarios before starting the server
+initializeScenarios();
 
 const PORT = parseInt(process.env.PORT || "8081", 10);
 const PUBLIC_URL = process.env.PUBLIC_URL || "";
@@ -105,17 +109,29 @@ app.all("/twiml",
     wsUrl.protocol = "wss:";
     wsUrl.pathname = `/call`;
 
-    // Extract job configuration from query parameters
-    const { jobTitle, company, jobDescription, voice } = req.query;
-    if (jobTitle || company || jobDescription || voice) {
+    // Extract scenario configuration from query parameters
+    const { scenarioId, config, voice, jobTitle, company, jobDescription } = req.query;
+    
+    // Support new scenario format
+    if (scenarioId || config) {
+      console.log(`📋 Scenario config in TwiML: ${scenarioId}, voice: ${voice}`);
+      if (scenarioId) wsUrl.searchParams.set("scenarioId", scenarioId as string);
+      if (config) wsUrl.searchParams.set("config", config as string);
+      if (voice) wsUrl.searchParams.set("voice", voice as string);
+    }
+    // Support legacy job configuration for backward compatibility
+    else if (jobTitle || company || jobDescription || voice) {
       console.log(
-        `📋 Job config in TwiML: ${jobTitle} at ${company}, voice: ${voice}`
+        `📋 Legacy job config in TwiML: ${jobTitle} at ${company}, voice: ${voice}`
       );
-      // URL.searchParams.set() automatically handles URL encoding
-      if (jobTitle) wsUrl.searchParams.set("jobTitle", jobTitle as string);
-      if (company) wsUrl.searchParams.set("company", company as string);
-      if (jobDescription)
-        wsUrl.searchParams.set("jobDescription", jobDescription as string);
+      // Convert to scenario format
+      wsUrl.searchParams.set("scenarioId", "job-interview");
+      const legacyConfig = {
+        jobTitle: jobTitle || "",
+        company: company || "",
+        jobDescription: jobDescription || "",
+      };
+      wsUrl.searchParams.set("config", JSON.stringify(legacyConfig));
       if (voice) wsUrl.searchParams.set("voice", voice as string);
     }
 
@@ -146,6 +162,15 @@ app.get("/tools",
   requireVerification(),
   (req, res) => {
     res.json(functions.map((f) => f.schema));
+  }
+);
+
+// New endpoint to list available scenarios
+app.get("/scenarios", 
+  requireVerification(),
+  (req, res) => {
+    const { scenarioRegistry } = require("./scenarios");
+    res.json(scenarioRegistry.getAllSchemas());
   }
 );
 
@@ -209,21 +234,62 @@ wss.on("connection", async (ws: WebSocket, req: IncomingMessage) => {
 
       console.log("📞 Call connection established - starting audio stream");
 
-      // Extract job configuration from URL parameters
-      const jobConfig = {
-        jobTitle: url.searchParams.get("jobTitle") || undefined,
-        company: url.searchParams.get("company") || undefined,
-        jobDescription: url.searchParams.get("jobDescription") || undefined,
-        voice: url.searchParams.get("voice") || undefined,
-        // Add rate limiting context
-        isRateLimited,
-        rateLimitReason,
-      };
-
-      if (jobConfig.jobTitle || jobConfig.company) {
-        console.log(
-          `📋 Job configuration from URL: ${jobConfig.jobTitle} at ${jobConfig.company}`
-        );
+      // Extract scenario configuration from URL parameters
+      const scenarioId = url.searchParams.get("scenarioId");
+      const configParam = url.searchParams.get("config");
+      const voice = url.searchParams.get("voice");
+      
+      let scenarioConfig = undefined;
+      
+      if (scenarioId && configParam) {
+        try {
+          const config = JSON.parse(configParam);
+          scenarioConfig = {
+            scenarioId,
+            config,
+            voice: voice || undefined,
+            isRateLimited,
+            rateLimitReason,
+          };
+          console.log(`📋 Scenario configuration from URL: ${scenarioId}`);
+        } catch (error) {
+          console.error("❌ Error parsing scenario config from URL:", error);
+        }
+      }
+      
+      // Legacy support: Extract job configuration from URL parameters
+      if (!scenarioConfig) {
+        const jobTitle = url.searchParams.get("jobTitle");
+        const company = url.searchParams.get("company");
+        const jobDescription = url.searchParams.get("jobDescription");
+        
+        if (jobTitle || company || jobDescription || voice) {
+          console.log(
+            `📋 Legacy job configuration from URL: ${jobTitle} at ${company}`
+          );
+          scenarioConfig = {
+            scenarioId: "job-interview",
+            config: {
+              jobTitle: jobTitle || "",
+              company: company || "",
+              jobDescription: jobDescription || "",
+            },
+            voice: voice || undefined,
+            isRateLimited,
+            rateLimitReason,
+          };
+        }
+      }
+      
+      // If still no scenario config, set up rate limiting context only
+      if (!scenarioConfig && (isRateLimited || rateLimitReason)) {
+        scenarioConfig = {
+          scenarioId: "job-interview", // Default scenario
+          config: {},
+          voice: voice || undefined,
+          isRateLimited,
+          rateLimitReason,
+        };
       }
 
       if (isRateLimited) {
@@ -253,7 +319,7 @@ wss.on("connection", async (ws: WebSocket, req: IncomingMessage) => {
         currentCall.close();
       }
       currentCall = ws;
-      handleCallConnection(currentCall, OPENAI_API_KEY, jobConfig);
+      handleCallConnection(currentCall, OPENAI_API_KEY, scenarioConfig);
     } else if (type === "logs") {
       console.log("📊 Frontend logs connection established");
       if (currentLogs) {
