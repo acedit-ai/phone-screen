@@ -314,12 +314,14 @@ export class RateLimitService {
 
     // Calculate when the oldest call in the window will expire
     const oldestCall = Math.min(...callEntry.callTimes);
-    const resetTime = oldestCall + this.config.websocket.callFrequencyWindow - now;
+    const resetTime =
+      oldestCall + this.config.websocket.callFrequencyWindow - now;
 
     return {
       allowed: true,
       delay,
-      remaining: this.config.websocket.maxCallsPerHour - callEntry.callTimes.length,
+      remaining:
+        this.config.websocket.maxCallsPerHour - callEntry.callTimes.length,
       resetTime: Math.max(0, resetTime),
     };
   }
@@ -337,7 +339,7 @@ export class RateLimitService {
   ): Promise<RateLimitResult> {
     // Normalize phone number for consistent tracking
     const normalizedPhoneNumber = this.normalizePhoneNumber(phoneNumber);
-    
+
     // Skip if phone number rate limiting is disabled
     if (!this.config.phone.enabled) {
       return { allowed: true };
@@ -347,7 +349,9 @@ export class RateLimitService {
     const windowStart = now - this.config.phone.windowMs;
 
     // Get or create phone entry for this number
-    const phoneEntry = this.phoneCache.get<PhoneEntry>(normalizedPhoneNumber) || {
+    const phoneEntry = this.phoneCache.get<PhoneEntry>(
+      normalizedPhoneNumber
+    ) || {
       callTimes: [],
       lastCallTime: 0,
     };
@@ -361,17 +365,22 @@ export class RateLimitService {
     if (phoneEntry.lastCallTime > 0) {
       const timeSinceLastCall = now - phoneEntry.lastCallTime;
       if (timeSinceLastCall < this.config.phone.cooldownMs) {
-        const remainingCooldown = this.config.phone.cooldownMs - timeSinceLastCall;
-        
+        const remainingCooldown =
+          this.config.phone.cooldownMs - timeSinceLastCall;
+
         if (this.config.monitoring.logViolations) {
           console.warn(
-            `🚫 Phone number ${normalizedPhoneNumber} is in cooldown period (${Math.ceil(remainingCooldown / 1000)}s remaining)${ipAddress ? ` - IP: ${ipAddress}` : ''}`
+            `🚫 Phone number ${normalizedPhoneNumber} is in cooldown period (${Math.ceil(
+              remainingCooldown / 1000
+            )}s remaining)${ipAddress ? ` - IP: ${ipAddress}` : ""}`
           );
         }
 
         return {
           allowed: false,
-          reason: `Phone number is in cooldown period. Please wait ${Math.ceil(remainingCooldown / 1000)} seconds before calling again.`,
+          reason: `Phone number is in cooldown period. Please wait ${Math.ceil(
+            remainingCooldown / 1000
+          )} seconds before calling again.`,
           resetTime: remainingCooldown,
         };
       }
@@ -384,13 +393,19 @@ export class RateLimitService {
 
       if (this.config.monitoring.logViolations) {
         console.warn(
-          `🚫 Phone number ${normalizedPhoneNumber} has exceeded call limit (${this.config.phone.maxCallsPerNumber} calls per ${this.config.phone.windowMs / 60000} minutes)${ipAddress ? ` - IP: ${ipAddress}` : ''}`
+          `🚫 Phone number ${normalizedPhoneNumber} has exceeded call limit (${
+            this.config.phone.maxCallsPerNumber
+          } calls per ${this.config.phone.windowMs / 60000} minutes)${
+            ipAddress ? ` - IP: ${ipAddress}` : ""
+          }`
         );
       }
 
       return {
         allowed: false,
-        reason: `Too many calls to this phone number (max: ${this.config.phone.maxCallsPerNumber} per ${Math.ceil(this.config.phone.windowMs / 60000)} minutes)`,
+        reason: `Too many calls to this phone number (max: ${
+          this.config.phone.maxCallsPerNumber
+        } per ${Math.ceil(this.config.phone.windowMs / 60000)} minutes)`,
         resetTime: Math.max(0, resetTime),
         remaining: 0,
       };
@@ -402,13 +417,17 @@ export class RateLimitService {
     this.phoneCache.set(normalizedPhoneNumber, phoneEntry);
 
     // Calculate remaining calls and reset time
-    const remaining = this.config.phone.maxCallsPerNumber - phoneEntry.callTimes.length;
-    const oldestCall = phoneEntry.callTimes.length > 0 ? Math.min(...phoneEntry.callTimes) : now;
+    const remaining =
+      this.config.phone.maxCallsPerNumber - phoneEntry.callTimes.length;
+    const oldestCall =
+      phoneEntry.callTimes.length > 0 ? Math.min(...phoneEntry.callTimes) : now;
     const resetTime = oldestCall + this.config.phone.windowMs - now;
 
     if (this.config.monitoring.enableDetailedLogging) {
       console.log(
-        `📞 Phone call allowed to ${normalizedPhoneNumber} (${remaining} calls remaining)${ipAddress ? ` - IP: ${ipAddress}` : ''}`
+        `📞 Phone call allowed to ${normalizedPhoneNumber} (${remaining} calls remaining)${
+          ipAddress ? ` - IP: ${ipAddress}` : ""
+        }`
       );
     }
 
@@ -427,14 +446,22 @@ export class RateLimitService {
    */
   private normalizePhoneNumber(phoneNumber: string): string {
     // Remove all non-digit characters except leading +
-    const cleaned = phoneNumber.replace(/[^\d+]/g, '');
-    
+    const cleaned = phoneNumber.replace(/[^\d+]/g, "");
+
     // Ensure E.164 format (starts with +)
-    if (!cleaned.startsWith('+')) {
-      // Assume US number if no country code
+    if (!cleaned.startsWith("+")) {
+      // If it's 10 digits, assume US number
+      if (cleaned.length === 10) {
+        return `+1${cleaned}`;
+      }
+      // If it's 11 digits and starts with 1, add +
+      if (cleaned.length === 11 && cleaned.startsWith("1")) {
+        return `+${cleaned}`;
+      }
+      // Default: assume US number
       return `+1${cleaned}`;
     }
-    
+
     return cleaned;
   }
 
@@ -540,7 +567,9 @@ export class RateLimitService {
     return `
 Max connections per IP: ${this.config.websocket.maxConnectionsPerIP}
 Max calls per hour per IP: ${this.config.websocket.maxCallsPerHour}
-Global concurrent connection limit: ${this.config.websocket.maxGlobalConcurrentConnections}
+Global concurrent connection limit: ${
+      this.config.websocket.maxGlobalConcurrentConnections
+    }
 Global concurrent call limit: ${this.config.websocket.maxGlobalConcurrentCalls}
 Max session duration: ${Math.round(
       this.config.websocket.maxSessionDuration / 60000

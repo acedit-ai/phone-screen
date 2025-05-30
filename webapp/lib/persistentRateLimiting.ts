@@ -1,23 +1,37 @@
 /**
  * Persistent Rate Limiting with NeonDB
- * 
+ *
  * This module provides persistent rate limiting functionality using NeonDB,
  * replacing the in-memory cache approach with database-backed storage.
  * This ensures rate limits persist across deployments and work in distributed environments.
  */
 
-import { NextRequest } from 'next/server';
-import { randomUUID } from 'crypto';
-import { getRateLimit, incrementRateLimit, initializeDatabase } from './database';
+import { NextRequest } from "next/server";
+import { randomUUID } from "crypto";
+import {
+  getRateLimit,
+  incrementRateLimit,
+  initializeDatabase,
+  updateRateLimitRegion,
+  createRateLimitWithRegion,
+  getRateLimitStatsByRegion,
+} from "./database";
+import { 
+  normalizePhoneNumber, 
+  createSecurePhoneKey, 
+  getPhoneKeyAndRegion 
+} from "./phone-encryption";
 
 /**
  * Check if we're running in development mode
  * Rate limiting is disabled in development for easier testing
  */
 function isDevMode(): boolean {
-  return process.env.NODE_ENV === 'development' || 
-         process.env.VERCEL_ENV === 'development' ||
-         !process.env.VERCEL_ENV; // Local development (no Vercel environment)
+  return (
+    process.env.NODE_ENV === "development" ||
+    process.env.VERCEL_ENV === "development" ||
+    !process.env.VERCEL_ENV
+  ); // Local development (no Vercel environment)
 }
 
 /**
@@ -44,6 +58,8 @@ export interface PersistentRateLimitResult {
   resetTime: number;
   /** Error message if the request is blocked */
   error?: string;
+  /** Region associated with the rate limit */
+  region?: string | null;
 }
 
 /**
@@ -55,21 +71,21 @@ export const PERSISTENT_RATE_LIMIT_CONFIGS = {
     windowSec: 900, // 15 minutes
     maxRequests: 30,
   } as PersistentRateLimitConfig,
-  
+
   // Call endpoints - more restrictive
   calls: {
     windowSec: 900, // 15 minutes
     maxRequests: 10,
     maxCalls: 3,
   } as PersistentRateLimitConfig,
-  
+
   // Phone number specific limits - very restrictive
   phone: {
     windowSec: 3600, // 1 hour
     maxRequests: 5,
     maxCalls: 2,
   } as PersistentRateLimitConfig,
-  
+
   // Authentication endpoints - very restrictive
   auth: {
     windowSec: 900, // 15 minutes
@@ -81,13 +97,13 @@ export const PERSISTENT_RATE_LIMIT_CONFIGS = {
  * Extracts the client's IP address from a Next.js request
  */
 export function getClientIP(request: NextRequest): string {
-  const xForwardedFor = request.headers.get('x-forwarded-for');
-  const xRealIP = request.headers.get('x-real-ip');
-  const cfConnectingIP = request.headers.get('cf-connecting-ip');
-  const xClientIP = request.headers.get('x-client-ip');
+  const xForwardedFor = request.headers.get("x-forwarded-for");
+  const xRealIP = request.headers.get("x-real-ip");
+  const cfConnectingIP = request.headers.get("cf-connecting-ip");
+  const xClientIP = request.headers.get("x-client-ip");
 
   if (xForwardedFor) {
-    return xForwardedFor.split(',')[0].trim();
+    return xForwardedFor.split(",")[0].trim();
   }
 
   if (xRealIP) return xRealIP;
@@ -107,40 +123,51 @@ export async function persistentRateLimit(
 ): Promise<PersistentRateLimitResult> {
   const ip = getClientIP(request);
   const windowMs = config.windowSec * 1000;
-  
+
   // Skip rate limiting in development mode
   if (isDevMode()) {
-    console.log(`🔧 Development mode: Skipping rate limit check for IP ${ip}${identifier ? ` (${identifier})` : ''}`);
+    console.log(
+      `🔧 Development mode: Skipping rate limit check for IP ${ip}${
+        identifier ? ` (${identifier})` : ""
+      }`
+    );
     return {
       success: true,
       remaining: 999, // High number to indicate unlimited in dev
       resetTime: Date.now() + windowMs,
     };
   }
-  
+
   // Create a unique key for this IP and identifier combination
   const key = identifier ? `${ip}:${identifier}` : ip;
-  
+
   try {
     // Get current rate limit state from database
     const { count, windowStart } = await getRateLimit(key, windowMs);
-    
+
     // Calculate the limit based on identifier
-    const limit = identifier === "calls" && typeof config.maxCalls === "number"
-      ? config.maxCalls
-      : config.maxRequests;
-    
+    const limit =
+      identifier === "calls" && typeof config.maxCalls === "number"
+        ? config.maxCalls
+        : config.maxRequests;
+
     // Check if request should be allowed
     if (count >= limit) {
       const resetTime = windowStart + windowMs;
-      
-      console.warn(`🚫 Persistent rate limit exceeded for IP ${ip}${identifier ? ` (${identifier})` : ''}: ${count}/${limit} requests`);
-      
+
+      console.warn(
+        `🚫 Persistent rate limit exceeded for IP ${ip}${
+          identifier ? ` (${identifier})` : ""
+        }: ${count}/${limit} requests`
+      );
+
       return {
         success: false,
         remaining: 0,
         resetTime,
-        error: `Too many requests. Limit: ${limit} per ${config.windowSec / 60} minutes`,
+        error: `Too many requests. Limit: ${limit} per ${
+          config.windowSec / 60
+        } minutes`,
       };
     }
 
@@ -149,7 +176,11 @@ export async function persistentRateLimit(
     const resetTime = windowStart + windowMs;
     const remaining = Math.max(0, limit - newCount);
 
-    console.log(`✅ Persistent rate limit check passed for IP ${ip}${identifier ? ` (${identifier})` : ''}: ${newCount}/${limit} requests`);
+    console.log(
+      `✅ Persistent rate limit check passed for IP ${ip}${
+        identifier ? ` (${identifier})` : ""
+      }: ${newCount}/${limit} requests`
+    );
 
     return {
       success: true,
@@ -157,8 +188,8 @@ export async function persistentRateLimit(
       resetTime,
     };
   } catch (error) {
-    console.error('❌ Persistent rate limit check failed:', error);
-    
+    console.error("❌ Persistent rate limit check failed:", error);
+
     // In case of database error, allow the request but log the issue
     // This prevents the service from being completely blocked by DB issues
     return {
@@ -170,7 +201,7 @@ export async function persistentRateLimit(
 }
 
 /**
- * Special rate limiting for phone numbers
+ * Special rate limiting for phone numbers with region tracking
  * This tracks calls to specific phone numbers to prevent abuse
  */
 export async function persistentPhoneRateLimit(
@@ -178,39 +209,49 @@ export async function persistentPhoneRateLimit(
   request: NextRequest,
   config: PersistentRateLimitConfig = PERSISTENT_RATE_LIMIT_CONFIGS.phone
 ): Promise<PersistentRateLimitResult> {
-  // Normalize phone number (remove spaces, hyphens, etc.)
-  const normalizedPhone = phoneNumber.replace(/[^\d+]/g, '');
+  // Get normalized phone, secure key, and region in one call
+  const { key: phoneKey, region, normalizedPhone } = getPhoneKeyAndRegion(phoneNumber);
   const windowMs = config.windowSec * 1000;
-  
+
   // Skip rate limiting in development mode
   if (isDevMode()) {
-    console.log(`🔧 Development mode: Skipping phone rate limit check for ${normalizedPhone}`);
+    console.log(
+      `🔧 Development mode: Skipping phone rate limit check for ${normalizedPhone} (${region || 'unknown region'})`
+    );
     return {
       success: true,
       remaining: 999, // High number to indicate unlimited in dev
       resetTime: Date.now() + windowMs,
+      region,
     };
   }
-  
-  // Create key for phone number rate limiting
-  const phoneKey = `phone:${normalizedPhone}`;
-  
+
   try {
-    // Get current phone number rate limit state
-    const { count, windowStart } = await getRateLimit(phoneKey, windowMs);
-    
+    // Get current phone number rate limit state from database
+    const { count, windowStart, region: storedRegion } = await getRateLimit(phoneKey, windowMs);
+
+    // Update region in database if we have it and it's not stored yet
+    if (region && !storedRegion) {
+      await updateRateLimitRegion(phoneKey, region);
+    }
+
     const limit = config.maxCalls || config.maxRequests;
-    
+
     if (count >= limit) {
       const resetTime = windowStart + windowMs;
-      
-      console.warn(`🚫 Phone number rate limit exceeded for ${normalizedPhone}: ${count}/${limit} calls`);
-      
+
+      console.warn(
+        `🚫 Phone number rate limit exceeded for ${normalizedPhone} (${region || storedRegion || 'unknown region'}): ${count}/${limit} calls`
+      );
+
       return {
         success: false,
         remaining: 0,
         resetTime,
-        error: `Too many calls to this number. Limit: ${limit} per ${config.windowSec / 3600} hour(s)`,
+        region: region || storedRegion,
+        error: `Too many calls to this number. Limit: ${limit} per ${
+          config.windowSec / 3600
+        } hour(s)`,
       };
     }
 
@@ -219,21 +260,25 @@ export async function persistentPhoneRateLimit(
     const resetTime = windowStart + windowMs;
     const remaining = Math.max(0, limit - newCount);
 
-    console.log(`✅ Phone number rate limit check passed for ${normalizedPhone}: ${newCount}/${limit} calls`);
+    console.log(
+      `✅ Phone number rate limit check passed for ${normalizedPhone} (${region || storedRegion || 'unknown region'}): ${newCount}/${limit} calls`
+    );
 
     return {
       success: true,
       remaining,
       resetTime,
+      region: region || storedRegion,
     };
   } catch (error) {
-    console.error('❌ Phone number rate limit check failed:', error);
-    
+    console.error("❌ Phone number rate limit check failed:", error);
+
     // Allow the request on database error
     return {
       success: true,
       remaining: (config.maxCalls || config.maxRequests) - 1,
       resetTime: Date.now() + windowMs,
+      region,
     };
   }
 }
@@ -245,9 +290,9 @@ export async function persistentPhoneRateLimit(
 export async function initializePersistentRateLimiting() {
   try {
     await initializeDatabase();
-    console.log('✅ Persistent rate limiting system initialized');
+    console.log("✅ Persistent rate limiting system initialized");
   } catch (error) {
-    console.error('❌ Failed to initialize persistent rate limiting:', error);
+    console.error("❌ Failed to initialize persistent rate limiting:", error);
     throw error;
   }
 }
@@ -259,14 +304,79 @@ export function getPersistentRateLimitHeaders(
   result: PersistentRateLimitResult,
   config?: PersistentRateLimitConfig
 ): Record<string, string> {
-  const limit = config ? 
-    (config.maxCalls || config.maxRequests) : 
-    'unknown';
+  const limit = config ? config.maxCalls || config.maxRequests : "unknown";
 
-  return {
-    'X-RateLimit-Limit': limit.toString(),
-    'X-RateLimit-Remaining': result.remaining.toString(),
-    'X-RateLimit-Reset': Math.ceil(result.resetTime / 1000).toString(),
-    'X-RateLimit-Reset-After': Math.ceil((result.resetTime - Date.now()) / 1000).toString(),
+  const headers: Record<string, string> = {
+    "X-RateLimit-Limit": limit.toString(),
+    "X-RateLimit-Remaining": result.remaining.toString(),
+    "X-RateLimit-Reset": Math.ceil(result.resetTime / 1000).toString(),
+    "X-RateLimit-Reset-After": Math.ceil(
+      (result.resetTime - Date.now()) / 1000
+    ).toString(),
   };
-} 
+
+  // Add region header for phone-based rate limits
+  if (result.region) {
+    headers["X-Phone-Region"] = result.region;
+  }
+
+  return headers;
+}
+
+/**
+ * Create a phone rate limit entry with region (useful for pre-populating data)
+ */
+export async function createPhoneRateLimitWithRegion(
+  phoneNumber: string,
+  config: PersistentRateLimitConfig = PERSISTENT_RATE_LIMIT_CONFIGS.phone
+): Promise<{ key: string; region: string | null; created: boolean }> {
+  const { key: phoneKey, region, normalizedPhone } = getPhoneKeyAndRegion(phoneNumber);
+  const windowMs = config.windowSec * 1000;
+
+  if (isDevMode()) {
+    return { key: phoneKey, region, created: false };
+  }
+
+  try {
+    await createRateLimitWithRegion(phoneKey, windowMs, region || undefined);
+    
+    console.log(
+      `📝 Created rate limit entry for ${normalizedPhone} (${region || 'unknown region'}): ${phoneKey}`
+    );
+
+    return { key: phoneKey, region, created: true };
+  } catch (error) {
+    console.error("❌ Failed to create phone rate limit with region:", error);
+    return { key: phoneKey, region, created: false };
+  }
+}
+
+/**
+ * Get rate limiting statistics (for admin purposes)
+ * This can be useful for monitoring and debugging
+ */
+export async function getRateLimitStats(): Promise<any> {
+  if (isDevMode()) {
+    return {
+      message: "Rate limiting disabled in development mode",
+      totalEntries: 0,
+      phoneEntries: 0,
+      ipEntries: 0,
+    };
+  }
+
+  try {
+    // Get regional statistics from database
+    const regionalStats = await getRateLimitStatsByRegion();
+    
+    return {
+      message: "Rate limiting statistics with regional breakdown",
+      ...regionalStats,
+    };
+  } catch (error) {
+    console.error("❌ Failed to get rate limit stats:", error);
+    return {
+      error: "Failed to retrieve statistics",
+    };
+  }
+}
