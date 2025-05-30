@@ -1,37 +1,19 @@
 import { Country } from "react-phone-number-input";
+import { 
+  REGION_DEFINITIONS, 
+  detectRegionFromCleanNumber, 
+  getRegionByCode,
+  type BaseRegion 
+} from "./shared-regions";
 
-export interface Region {
-  code: string;
-  name: string;
-  flag: string;
-  countryCode: string;
+export interface Region extends BaseRegion {
   phoneNumber?: string; // Optional on client-side
-  example: string;
 }
 
-export const SUPPORTED_REGIONS: Region[] = [
-  {
-    code: 'US',
-    name: 'United States',
-    flag: '🇺🇸',
-    countryCode: '+1',
-    example: '+1 (555) 123-4567'
-  },
-  {
-    code: 'AU',
-    name: 'Australia',
-    flag: '🇦🇺',
-    countryCode: '+61',
-    example: '+61 4XX XXX XXX'
-  },
-  {
-    code: 'IN',
-    name: 'India',
-    flag: '🇮🇳',
-    countryCode: '+91',
-    example: '+91 XXXXX XXXXX'
-  }
-];
+export const SUPPORTED_REGIONS: Region[] = REGION_DEFINITIONS.map(region => ({
+  ...region,
+  phoneNumber: undefined // Client-side doesn't need phone numbers
+}));
 
 export const SUPPORTED_COUNTRIES: Country[] = SUPPORTED_REGIONS.map(r => r.code as Country);
 
@@ -46,17 +28,11 @@ export const REGION_INFO = SUPPORTED_REGIONS.reduce((acc, region) => {
 
 export function getRegionFromPhoneNumber(phoneNumber: string): Region | null {
   const cleanNumber = phoneNumber.replace(/\D/g, '');
+  const regionCode = detectRegionFromCleanNumber(cleanNumber);
   
-  if (cleanNumber.startsWith('1') && cleanNumber.length === 11) {
-    return SUPPORTED_REGIONS.find(r => r.code === 'US') || null;
-  }
-  
-  if (cleanNumber.startsWith('61') && cleanNumber.length >= 10) {
-    return SUPPORTED_REGIONS.find(r => r.code === 'AU') || null;
-  }
-  
-  if (cleanNumber.startsWith('91') && cleanNumber.length >= 12) {
-    return SUPPORTED_REGIONS.find(r => r.code === 'IN') || null;
+  if (regionCode) {
+    const baseRegion = getRegionByCode(regionCode);
+    return baseRegion ? { ...baseRegion, phoneNumber: undefined } : null;
   }
   
   return null;

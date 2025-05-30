@@ -1,3 +1,10 @@
+/**
+ * Region definitions for websocket server
+ * 
+ * IMPORTANT: These definitions should stay synchronized with webapp/lib/shared-regions.ts
+ * This duplication exists due to TypeScript project boundaries but should be kept in sync.
+ */
+
 export interface Region {
   code: string;
   name: string;
@@ -29,7 +36,8 @@ export const SUPPORTED_REGIONS: Region[] = [
     name: 'India',
     flag: '🇮🇳',
     countryCode: '+91',
-    phoneNumber: process.env.TWILIO_PHONE_NUMBER_US || '',
+    phoneNumber: process.env.TWILIO_PHONE_NUMBER_IN || 
+                 process.env.TWILIO_PHONE_NUMBER_US || '', // Fallback to US
     example: '+91 XXXXX XXXXX'
   }
 ];
@@ -37,14 +45,17 @@ export const SUPPORTED_REGIONS: Region[] = [
 export function getRegionFromPhoneNumber(phoneNumber: string): Region | null {
   const cleanNumber = phoneNumber.replace(/\D/g, '');
   
+  // US: 11 digits starting with 1
   if (cleanNumber.startsWith('1') && cleanNumber.length === 11) {
     return SUPPORTED_REGIONS.find(r => r.code === 'US') || null;
   }
   
+  // AU: 10+ digits starting with 61  
   if (cleanNumber.startsWith('61') && cleanNumber.length >= 10) {
     return SUPPORTED_REGIONS.find(r => r.code === 'AU') || null;
   }
   
+  // IN: 12+ digits starting with 91
   if (cleanNumber.startsWith('91') && cleanNumber.length >= 12) {
     return SUPPORTED_REGIONS.find(r => r.code === 'IN') || null;
   }

@@ -34,6 +34,7 @@ export async function initializeDatabase() {
         id TEXT PRIMARY KEY,
         count INTEGER NOT NULL DEFAULT 0,
         window_start BIGINT NOT NULL,
+        region TEXT,
         created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
       )
@@ -49,7 +50,21 @@ export async function initializeDatabase() {
       CREATE INDEX IF NOT EXISTS idx_rate_limits_window_start ON rate_limits(window_start)
     `;
 
-    console.log('✅ Rate limiting database schema initialized');
+    // Create index for region-based queries
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_rate_limits_region ON rate_limits(region)
+    `;
+
+    // Add region column if it doesn't exist (for existing installations)
+    await sql`
+      ALTER TABLE rate_limits 
+      ADD COLUMN IF NOT EXISTS region TEXT
+    `.catch(() => {
+      // Ignore error if column already exists (some DB versions handle this differently)
+      console.log('📝 Region column may already exist or alter table not supported');
+    });
+
+    console.log('✅ Rate limiting database schema initialized with region tracking');
   } catch (error) {
     console.error('❌ Failed to initialize database schema:', error);
     throw error;
@@ -70,7 +85,7 @@ export async function getRateLimit(key: string, windowMs: number) {
   try {
     // First, try to get existing entry
     const existing = await sql`
-      SELECT count, window_start 
+      SELECT count, window_start, region
       FROM rate_limits 
       WHERE id = ${key}
     `;
@@ -82,11 +97,12 @@ export async function getRateLimit(key: string, windowMs: number) {
       if (entry.window_start === windowStart) {
         return {
           count: entry.count,
-          windowStart: entry.window_start
+          windowStart: entry.window_start,
+          region: entry.region
         };
       }
       
-      // New window, reset the count
+      // New window, reset the count (keep the region)
       await sql`
         UPDATE rate_limits 
         SET count = 0, window_start = ${windowStart}, updated_at = NOW()
@@ -95,11 +111,12 @@ export async function getRateLimit(key: string, windowMs: number) {
       
       return {
         count: 0,
-        windowStart
+        windowStart,
+        region: entry.region
       };
     }
 
-    // Create new entry
+    // Create new entry (without region initially)
     await sql`
       INSERT INTO rate_limits (id, count, window_start)
       VALUES (${key}, 0, ${windowStart})
@@ -107,7 +124,8 @@ export async function getRateLimit(key: string, windowMs: number) {
 
     return {
       count: 0,
-      windowStart
+      windowStart,
+      region: null
     };
   } catch (error) {
     console.error('❌ Failed to get rate limit:', error);
@@ -139,27 +157,141 @@ export async function incrementRateLimit(key: string): Promise<number> {
 }
 
 /**
- * Clean up old rate limit entries to prevent table bloat
- * Removes entries older than the specified retention period
+ * Update the region for a rate limit entry
  */
-export async function cleanupOldRateLimits(retentionHours = 24) {
+export async function updateRateLimitRegion(key: string, region: string): Promise<void> {
   if (!sql) {
-    console.log('🔧 Development mode: DATABASE_URL not set, skipping cleanup');
-    return 0;
+    throw new Error('Database not available in development mode');
   }
 
   try {
-    const cutoffTime = Date.now() - (retentionHours * 60 * 60 * 1000);
-    
+    await sql`
+      UPDATE rate_limits 
+      SET region = ${region}, updated_at = NOW()
+      WHERE id = ${key}
+    `;
+  } catch (error) {
+    console.error('❌ Failed to update rate limit region:', error);
+    throw error;
+  }
+}
+
+/**
+ * Create or update a rate limit entry with region
+ */
+export async function createRateLimitWithRegion(
+  key: string, 
+  windowMs: number, 
+  region?: string
+): Promise<{ count: number; windowStart: number; region: string | null }> {
+  if (!sql) {
+    throw new Error('Database not available in development mode');
+  }
+
+  const now = Date.now();
+  const windowStart = now - (now % windowMs); // Align to window boundary
+
+  try {
+    // Use upsert to handle both create and update cases
+    await sql`
+      INSERT INTO rate_limits (id, count, window_start, region)
+      VALUES (${key}, 0, ${windowStart}, ${region || null})
+      ON CONFLICT (id) DO UPDATE SET
+        count = CASE 
+          WHEN rate_limits.window_start = ${windowStart} THEN rate_limits.count
+          ELSE 0
+        END,
+        window_start = ${windowStart},
+        region = COALESCE(${region || null}, rate_limits.region),
+        updated_at = NOW()
+    `;
+
+    // Get the current state
+    const result = await sql`
+      SELECT count, window_start, region
+      FROM rate_limits 
+      WHERE id = ${key}
+    `;
+
+    const entry = result[0];
+    return {
+      count: entry.count,
+      windowStart: entry.window_start,
+      region: entry.region
+    };
+  } catch (error) {
+    console.error('❌ Failed to create/update rate limit with region:', error);
+    throw error;
+  }
+}
+
+/**
+ * Get rate limiting statistics by region
+ */
+export async function getRateLimitStatsByRegion(): Promise<any> {
+  if (!sql) {
+    return { message: 'Database not available in development mode' };
+  }
+
+  try {
+    // Get stats by region for phone entries
+    const regionStats = await sql`
+      SELECT 
+        region,
+        COUNT(*) as total_entries,
+        SUM(count) as total_calls,
+        AVG(count) as avg_calls_per_entry,
+        MAX(updated_at) as last_activity
+      FROM rate_limits 
+      WHERE id LIKE 'phone_hash:%' 
+        AND region IS NOT NULL
+      GROUP BY region
+      ORDER BY total_calls DESC
+    `;
+
+    // Get overall stats
+    const overallStats = await sql`
+      SELECT 
+        COUNT(*) as total_phone_entries,
+        COUNT(CASE WHEN region IS NOT NULL THEN 1 END) as entries_with_region,
+        COUNT(CASE WHEN region IS NULL THEN 1 END) as entries_without_region
+      FROM rate_limits 
+      WHERE id LIKE 'phone_hash:%'
+    `;
+
+    return {
+      regionBreakdown: regionStats,
+      overall: overallStats[0],
+      timestamp: new Date().toISOString()
+    };
+  } catch (error) {
+    console.error('❌ Failed to get rate limit stats by region:', error);
+    return { error: 'Failed to retrieve regional statistics' };
+  }
+}
+
+/**
+ * Clean up old rate limit entries
+ * Removes entries older than the specified age
+ */
+export async function cleanupOldRateLimitEntries(olderThanMs: number = 7 * 24 * 60 * 60 * 1000): Promise<number> {
+  if (!sql) {
+    throw new Error('Database not available in development mode');
+  }
+
+  const cutoffTime = Date.now() - olderThanMs;
+
+  try {
     const result = await sql`
       DELETE FROM rate_limits 
       WHERE window_start < ${cutoffTime}
     `;
 
-    console.log(`🧹 Cleaned up ${result.length} old rate limit entries`);
-    return result.length;
+    const deletedCount = Array.isArray(result) ? result.length : 0;
+    console.log(`🧹 Cleaned up ${deletedCount} old rate limit entries`);
+    return deletedCount;
   } catch (error) {
-    console.error('❌ Failed to cleanup old rate limits:', error);
+    console.error('❌ Failed to cleanup old rate limit entries:', error);
     throw error;
   }
 }
