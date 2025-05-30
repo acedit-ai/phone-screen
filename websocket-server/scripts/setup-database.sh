@@ -35,7 +35,7 @@ fi
 
 # Get app name from fly.toml or ask user
 if [ -f "fly.toml" ]; then
-    APP_NAME=$(grep "^app = " fly.toml | sed 's/app = "\(.*\)"/\1/')
+    APP_NAME=$(grep "^app = " fly.toml | sed 's/app = ["\'"'"']\(.*\)["\'"'"']/\1/')
     echo -e "${GREEN}📱 Found app name in fly.toml: ${APP_NAME}${NC}"
 else
     echo -e "${YELLOW}⚠️  No fly.toml found. Please enter your app name:${NC}"

@@ -2,218 +2,286 @@
 sidebar_position: 2
 ---
 
-# Rate Limiting & Graceful Message Delivery
+# Rate Limiting Architecture
 
-This document explains the rate limiting system and how it ensures users receive polite, professional messages when reaching their free call limits.
+This document explains the comprehensive rate limiting system that ensures fair usage across the platform while providing excellent user experience through real-time feedback.
 
-## Overview
+## 🏗️ Architecture Overview
 
-The rate limiting feature ensures that when users reach their free call limits, the AI agent delivers a polite, professional message explaining the situation before ending the call, rather than abruptly disconnecting them.
+The rate limiting system is now split across two applications with clear responsibilities:
 
-## How It Works
+### **Websocket-Server** (Database-Backed)
+- **Phone Number Rate Limiting**: Persistent, secure, 2 calls per hour per phone
+- **Database Storage**: Fly.io native PostgreSQL with encrypted phone hashes
+- **Real-time Communication**: WebSocket messages for UI updates
 
-### 1. Rate Limit Detection
-When a user attempts to make a call that would exceed their rate limits:
-- The system detects the rate limit violation in the websocket server
-- Instead of immediately closing the WebSocket connection, it allows the call to proceed with a special flag
-- The call is marked as `isRateLimited: true` with the specific `rateLimitReason`
+### **Webapp** (In-Memory)  
+- **IP Address Rate Limiting**: Simple, fast, 10 calls per 15 minutes per IP
+- **UI Integration**: Real-time visual indicators and status updates
+- **User Experience**: Prevents failed calls with immediate feedback
 
-### 2. AI Prompt Modification
-The AI agent receives modified instructions when handling rate-limited calls:
-- **Normal calls**: Standard interview prompts
-- **Rate-limited calls**: Special prompt to deliver a polite rate limit message
+## 🎯 Rate Limiting Rules
 
-### 3. Message Delivery
-For rate-limited calls, the AI agent:
-1. Greets the caller professionally
-2. Explains they've reached their free call limit
-3. Mentions this ensures fair usage for all users
-4. Suggests trying again when the limit resets
-5. Thanks them and ends the call politely
+### Phone Number Limits (Persistent)
+- **Limit**: 2 calls per hour per phone number
+- **Window**: Rolling 1-hour window
+- **Storage**: PostgreSQL database with secure phone hashing
+- **Scope**: Global across all deployments
 
-### 4. Automatic Hangup
-- Rate-limited calls automatically end after 15 seconds to prevent abuse
-- This ensures the message is delivered but the call doesn't continue indefinitely
+### IP Address Limits (Session)
+- **Limit**: 10 calls per 15 minutes per IP
+- **Window**: Sliding 15-minute window  
+- **Storage**: In-memory cache (webapp)
+- **Scope**: Per webapp instance
 
-## Rate Limit Configuration
+## 🔄 Real-Time Communication Flow
 
-The system supports multiple types of rate limiting:
-
-### Default Limits
-```env
-RATE_LIMIT_WINDOW_MS=900000          # 15 minutes in milliseconds
-RATE_LIMIT_MAX_REQUESTS=100          # Max requests per window
-RATE_LIMIT_MAX_CALLS=5               # Max calls per user
-RATE_LIMIT_MAX_CONCURRENT_CALLS=3    # Max concurrent calls
-RATE_LIMIT_SESSION_DURATION=1800000  # 30 minutes in milliseconds
-RATE_LIMIT_SUSPENSION_DURATION=3600000 # 1 hour in milliseconds
+### 1. User Input Validation
+```
+User enters phone number → Frontend validates format → Shows rate limit status
 ```
 
-### Types of Rate Limiting
-
-#### IP-Based Limits
-- **Call frequency**: Maximum calls per hour/day per IP address
-- **Request frequency**: Maximum API requests per time window
-- **Concurrent connections**: Maximum simultaneous calls
-
-#### Phone Number Limits
-- **Per phone number**: Maximum calls to a specific number per time period
-- Prevents abuse of repeatedly calling the same number
-
-#### Session Limits
-- **Session duration**: Maximum length of a single call session
-- **Suspension**: Temporary suspension after violations
-
-## Rate Limit Message Template
-
-The AI agent uses this template for rate-limited calls:
-
-```
-"Hello! Thank you for calling our interview screening service. I need to let you know that you've reached your free call limit. This helps us ensure fair access for all users. Thank you for your understanding, and have a great day!"
-```
-
-## Implementation Details
-
-### Frontend Rate Limit Handling
-
-When a rate limit is encountered:
-
+### 2. Rate Limit Check
 ```typescript
-// Rate limit error response
+// Frontend sends via WebSocket
 {
-  "error": "Too many requests. Limit: 3 per 15 minutes",
-  "type": "ip_rate_limit"
+  type: 'rate_limit_check',
+  phoneNumber: '+1234567890'
 }
 
-// Phone number specific limit
+// Websocket-server responds with current status
 {
-  "error": "Too many calls to this number. Limit: 2 per 1 hour(s)",
-  "type": "phone_rate_limit",
-  "phoneNumber": "+1234567890"
+  type: 'rate_limit_status',
+  phoneNumber: '+1234567890',
+  allowed: true,
+  remaining: 2,
+  resetTime: 1640995200000
 }
 ```
 
-### WebSocket Server Rate Limiting
+### 3. UI State Updates
+The frontend immediately updates the user interface:
+- **Green Alert**: "2/2 calls available" 
+- **Yellow Alert**: "1/2 calls available - Last call!"
+- **Red Alert**: "Call limit reached - Resets in 45m"
+- **Button State**: Disabled when rate limited
 
-The websocket server handles rate-limited calls specially:
+### 4. Call Attempt Validation
+```
+User clicks call → Check rate limits → Allow/Block call → Update UI
+```
 
+## 🛡️ Security & Privacy
+
+### Phone Number Protection
 ```typescript
-// Allow rate-limited call for graceful message delivery
-if (isRateLimited) {
-  console.log('⚠️ Rate limited call allowed to connect for graceful message delivery');
-  
-  // Set special context for AI
-  const rateLimitedInstructions = generateRateLimitInstructions(rateLimitReason);
-  
-  // Auto-hangup after message delivery
-  setTimeout(() => {
-    console.log('🚫 Auto-hanging up rate-limited call after message delivery');
-    session.hangup();
-  }, 15000);
-}
+// Phone numbers are never stored in plain text
+const phoneHash = hmac('sha256', PHONE_ENCRYPTION_KEY, normalizedPhone);
+
+// Database stores only the hash
+CREATE TABLE phone_rate_limits (
+  phone_hash VARCHAR(64) PRIMARY KEY,  -- HMAC-SHA256 hash
+  call_count INTEGER DEFAULT 0,
+  window_start BIGINT NOT NULL,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
 ```
 
-### Rate Limit Headers
+### Key Security Features
+- **HMAC-SHA256 Hashing**: Phone numbers never stored in plain text
+- **Configurable Encryption Key**: `PHONE_ENCRYPTION_KEY` environment variable
+- **Connection Pooling**: Secure SSL connections to database
+- **Graceful Fallbacks**: System works even if database is unavailable
 
-API responses include helpful rate limit information:
+## 🚀 Database Schema
 
-```
-X-RateLimit-Limit: 3
-X-RateLimit-Remaining: 2
-X-RateLimit-Reset: 1703123456
-X-Phone-RateLimit-Remaining: 1
-```
+### Phone Rate Limits Table
+```sql
+CREATE TABLE IF NOT EXISTS phone_rate_limits (
+  phone_hash VARCHAR(64) PRIMARY KEY,
+  call_count INTEGER NOT NULL DEFAULT 0,
+  window_start BIGINT NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
 
-## Benefits
+-- Indexes for performance
+CREATE INDEX IF NOT EXISTS idx_phone_rate_limits_window_start 
+ON phone_rate_limits(window_start);
 
-1. **Better User Experience**: Users receive a clear explanation instead of an abrupt disconnection
-2. **Professional Image**: Maintains a professional tone even when enforcing limits
-3. **Clear Communication**: Users understand why the call ended and when they can try again
-4. **Abuse Prevention**: Automatic hangup prevents users from staying on the line indefinitely
-
-## Monitoring & Logging
-
-Rate-limited calls are logged with special indicators:
-
-```
-⚠️ Rate limited call allowed to connect for graceful message delivery
-🚫 Sending rate limit message and preparing to end call
-🚫 Auto-hanging up rate-limited call after message delivery
-✅ Persistent rate limit check passed for IP: 192.168.1.1
-🚫 Phone number rate limit exceeded for +1234567890
+CREATE INDEX IF NOT EXISTS idx_phone_rate_limits_created_at 
+ON phone_rate_limits(created_at);
 ```
 
-## Testing Rate Limits
+### Automatic Cleanup
+Old rate limit entries are automatically cleaned up:
+```typescript
+// Removes entries older than 7 days
+await cleanupOldEntries(7 * 24 * 60 * 60 * 1000);
+```
 
-### Manual Testing
-1. Make multiple calls quickly to trigger rate limits
-2. Verify the AI delivers the rate limit message
-3. Confirm the call ends automatically after 15 seconds
+## 🎨 UI Integration
 
-### Automated Testing
-Use the provided test script to verify functionality:
+### Rate Limit Indicator Component
+```typescript
+<RateLimitIndicator rateLimitStatus={rateLimitStatus} />
+```
 
+**Visual States:**
+- **Loading**: Spinner with "Checking rate limit..."
+- **Available**: Green with remaining calls badge
+- **Warning**: Yellow when 1 call remaining  
+- **Blocked**: Red with countdown timer
+- **Error**: Yellow with connection error message
+
+### Phone Input Integration
+```typescript
+const { rateLimitStatus, checkRateLimit } = useRateLimit();
+
+// Automatic checking when phone number changes
+useEffect(() => {
+  if (isValidPhone && isSupportedRegion) {
+    checkRateLimit(phoneNumber);
+  }
+}, [phoneNumber]);
+
+// Prevent calls when rate limited
+const canStartCall = isValidPhone && isVerified && !isRateLimited;
+```
+
+## ⚙️ Configuration
+
+### Environment Variables
+
+#### Websocket-Server
 ```bash
-node test-rate-limit-prompt.js
+# Database Configuration
+DATABASE_URL=postgresql://user:pass@host:5432/db
+FLY_DATABASE_URL=postgresql://user:pass@host:5432/db  # Fly.io fallback
+
+# Security
+PHONE_ENCRYPTION_KEY=your-32-character-secret-key
+
+# Rate Limiting
+RATE_LIMIT_CLEANUP_INTERVAL=3600000  # 1 hour cleanup interval
 ```
 
-This script simulates a rate-limited call and verifies that:
-- The connection is established
-- The AI delivers the rate limit message
-- The call ends automatically
+#### Webapp
+```bash
+# WebSocket Connection
+NEXT_PUBLIC_WEBSOCKET_SERVER_URL=wss://your-server.fly.dev
 
-## Rate Limiting Types Supported
-
-Currently supports graceful messaging for:
-- **Call frequency limits**: When users exceed calls per hour/day
-- **Connection limits**: When too many concurrent connections are attempted
-- **Phone number limits**: When calling specific numbers too frequently
-
-Future enhancements could include:
-- Phone number specific rate limiting messages
-- Customizable message templates
-- Different messages for different types of rate limits
-
-## Database Integration
-
-Rate limits are stored persistently in the database to ensure they work across:
-- Server restarts
-- Multiple deployment instances
-- Different server regions
-
-See the [NeonDB Setup Guide](../configuration/neondb-setup) for database configuration details.
-
-## Configuration Examples
-
-### Development Configuration
-```env
-# More lenient limits for development
-RATE_LIMIT_MAX_CALLS=10
-RATE_LIMIT_MAX_CONCURRENT_CALLS=5
-RATE_LIMIT_WINDOW_MS=600000  # 10 minutes
+# Simple Rate Limiting (IP-based)
+RATE_LIMIT_WINDOW_SEC=900     # 15 minutes
+RATE_LIMIT_MAX_REQUESTS=10    # 10 calls per window
 ```
 
-### Production Configuration
-```env
-# Stricter limits for production
-RATE_LIMIT_MAX_CALLS=3
-RATE_LIMIT_MAX_CONCURRENT_CALLS=2
-RATE_LIMIT_WINDOW_MS=900000  # 15 minutes
+## 🔍 Monitoring & Analytics
+
+### Database Statistics
+```typescript
+// Get rate limiting statistics
+const stats = await rateLimitDB.getStatistics();
+console.log(stats);
+// {
+//   totalEntries: 1250,
+//   entriesLast24h: 89,
+//   avgCallsPerEntry: 1.3,
+//   topRegions: ['US', 'AU', 'IN']
+// }
 ```
 
-## Troubleshooting
+### WebSocket Connection Health
+```typescript
+// Monitor connection status
+const { isConnected } = useRateLimit();
+console.log(`WebSocket connected: ${isConnected}`);
+```
 
-### Rate Limits Not Working
-1. Check database connection and schema initialization
-2. Verify environment variables are set correctly
-3. Check server logs for rate limiting messages
+### Error Tracking
+- Database connection failures logged with fallback to in-memory
+- WebSocket disconnections handled gracefully with reconnection
+- Rate limit check failures show user-friendly error messages
 
-### Graceful Messages Not Delivered
-1. Verify the AI is receiving the rate-limited flag
-2. Check WebSocket connection for rate-limited calls
-3. Ensure auto-hangup timer is working correctly
+## 🔧 Development & Testing
 
-### Performance Issues
-- Rate limiting checks are optimized for minimal latency
-- Database queries are indexed for fast lookups
-- Automatic cleanup prevents database bloat 
+### Local Development Setup
+```bash
+# Start PostgreSQL locally (optional - uses in-memory fallback)
+docker run -p 5432:5432 -e POSTGRES_PASSWORD=password postgres
+
+# Set environment variables
+echo "DATABASE_URL=postgresql://postgres:password@localhost:5432/phone_screen" > .env
+echo "PHONE_ENCRYPTION_KEY=$(openssl rand -hex 32)" >> .env
+
+# Initialize database
+npm run db:init
+```
+
+### Testing Rate Limits
+```bash
+# Check current rate limit status
+curl -X POST http://localhost:8081/api/rate-limit-check \
+  -H "Content-Type: application/json" \
+  -d '{"phoneNumber": "+1234567890"}'
+
+# Reset rate limits for testing
+curl -X DELETE http://localhost:8081/api/rate-limit-reset \
+  -H "Content-Type: application/json" \
+  -d '{"phoneNumber": "+1234567890"}'
+```
+
+## 🚨 Troubleshooting
+
+### Common Issues
+
+#### Rate Limit Not Updating
+```bash
+# Check WebSocket connection
+NEXT_PUBLIC_WEBSOCKET_SERVER_URL=ws://localhost:8081
+
+# Verify database connection
+DATABASE_URL=postgresql://user:pass@host:5432/db
+```
+
+#### Database Connection Errors
+```bash
+# System gracefully falls back to in-memory rate limiting
+# Check logs for database connection status
+```
+
+#### Encryption Key Issues
+```bash
+# Generate new encryption key
+openssl rand -hex 32
+
+# Set in environment
+export PHONE_ENCRYPTION_KEY=your-new-key-here
+```
+
+### Performance Optimization
+- Database connection pooling enabled by default
+- Rate limit checks cached for 5 seconds per phone number
+- WebSocket connections reused across rate limit checks
+- Automatic cleanup prevents database bloat
+
+---
+
+## Migration Guide
+
+### From Old Rate Limiting System
+The previous NeonDB-based rate limiting in the webapp has been completely replaced. No migration is needed - the new system starts fresh with a clean database schema.
+
+### Environment Variable Changes
+```bash
+# REMOVED (no longer needed)
+DATABASE_URL  # From webapp
+NEON_DATABASE_URL  # From webapp
+
+# ADDED (websocket-server)
+DATABASE_URL  # For Fly.io PostgreSQL
+PHONE_ENCRYPTION_KEY  # For secure phone hashing
+```
+
+This new architecture provides better performance, enhanced security, and a superior user experience with real-time feedback. 

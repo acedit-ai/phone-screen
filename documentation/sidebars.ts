@@ -39,8 +39,9 @@ const sidebars: SidebarsConfig = {
       type: 'category',
       label: '🏗️ Architecture',
       items: [
-        'architecture/session-management',
+        'architecture/overview',
         'architecture/rate-limiting',
+        'architecture/session-management',
         'architecture/security',
       ],
     },

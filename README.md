@@ -12,8 +12,33 @@ A **modular, domain-agnostic** platform for AI-powered phone call simulations. B
 
 **🔌 Plugin Architecture**: Easily create new call scenarios without touching core code  
 **🌍 Domain Agnostic**: Not just job interviews - build any type of call simulation  
-**🚀 Production Ready**: Rate limiting, security, multi-region support built-in  
+**🚀 Production Ready**: Database-backed rate limiting, real-time UI, multi-region support  
 **📱 Real Phone Calls**: Uses Twilio + OpenAI Realtime API for authentic experiences  
+**⚡ Real-time Experience**: Instant rate limit feedback and status updates
+
+## 🏗️ Modern Architecture
+
+```
+┌─────────────────┐    WebSocket    ┌──────────────────────┐
+│     Webapp      │◄──────────────►│   Websocket-Server   │
+│   (Frontend)    │    Real-time    │  (Backend + AI)      │
+│                 │   Communication │                      │
+└─────────────────┘                 └──────────────────────┘
+         │                                      │
+         │ Simple IP                           │ Database
+         │ Rate Limiting                       │ Rate Limiting
+         ▼                                     ▼
+┌─────────────────┐                 ┌──────────────────────┐
+│  In-Memory      │                 │   Fly.io PostgreSQL  │
+│     Cache       │                 │      Database        │
+└─────────────────┘                 └──────────────────────┘
+```
+
+**Key Features:**
+- **🔐 Secure Rate Limiting**: 2 calls/hour per phone (database-backed) + 10 calls/15min per IP
+- **📱 Real-time UI**: Instant feedback with countdown timers and visual indicators  
+- **🛡️ Privacy First**: Phone numbers encrypted with HMAC-SHA256, never stored in plain text
+- **⚡ High Performance**: Connection pooling, WebSocket communication, automatic cleanup
 
 ## 🎭 Built-in Scenarios
 
@@ -30,6 +55,7 @@ A **modular, domain-agnostic** platform for AI-powered phone call simulations. B
 - Node.js 18+
 - Twilio Account with phone numbers
 - OpenAI API Key
+- PostgreSQL Database (Fly.io recommended)
 
 ### 3-Terminal Setup
 
@@ -41,6 +67,7 @@ ngrok http 8081
 # Terminal 2: Start websocket server  
 cd websocket-server
 # Add ngrok URL to .env: PUBLIC_URL=https://abc123.ngrok-free.app
+# Add database: DATABASE_URL=postgresql://user:pass@host:5432/db
 npm install && npm run dev
 
 # Terminal 3: Start webapp
@@ -49,136 +76,27 @@ cd webapp
 npm install && npm run dev
 ```
 
-Open `http://localhost:3000` and start practicing!
+Visit `http://localhost:3000` and start your first call! 📞
 
-**⚠️ Important:** Both components need the **same ngrok HTTPS URL** in their environment files.
+## ✨ Latest Features
 
-## 🏗️ Architecture Overview
+### 🎯 **Phase 1: Database-Backed Rate Limiting**
+- **Persistent Rate Limits**: Survives deployments and restarts
+- **Secure Phone Hashing**: HMAC-SHA256 encryption 
+- **Fly.io Integration**: Native PostgreSQL with connection pooling
+- **Automatic Cleanup**: Old entries cleaned up automatically
 
-```mermaid
-graph TB
-    subgraph "Frontend (Next.js)"
-        A[Scenario Selection] --> B[Dynamic Configuration]
-        B --> C[Phone Interface]
-    end
-    
-    subgraph "Backend (Express + WebSocket)"
-        D[Scenario Registry] --> E[Session Manager]
-        E --> F[OpenAI Realtime API]
-    end
-    
-    subgraph "Scenarios (Plugins)"
-        G[Job Interview]
-        H[Customer Service]
-        I[Custom Scenario]
-    end
-    
-    C --> E
-    D --> G
-    D --> H
-    D --> I
-    E --> J[Twilio Voice API]
-    J --> K[📱 Phone Call]
-```
+### 🎨 **Phase 2: Real-time UI Indicators**  
+- **Live Rate Limit Status**: See remaining calls in real-time
+- **Visual Countdown Timers**: Know exactly when limits reset
+- **Smart Call Prevention**: Blocks calls before they fail
+- **WebSocket Communication**: Instant updates without page refresh
 
-**Key Components:**
-- **Scenario System**: Plugin-based architecture for different call types
-- **Dynamic Frontend**: Adapts UI based on selected scenario
-- **Session Management**: Handles state and configuration per call
-- **Multi-Region Support**: US, Australia, India with automatic fallback
-
-## ✨ Key Features
-
-✅ **Plugin Architecture** - Add new scenarios without touching core code  
-✅ **Dynamic UI** - Frontend adapts to any scenario automatically  
-✅ **Real-time AI Conversations** - Natural voice interactions using OpenAI Realtime API  
-✅ **Multi-Region Support** - US, Australia, India with automatic fallback  
-✅ **Rate Limiting** - Built-in abuse protection with graceful messaging  
-✅ **Security** - Optional Cloudflare Turnstile bot protection  
-✅ **Session Management** - Proper state handling between calls  
-✅ **Database Integration** - Persistent storage with PostgreSQL  
-✅ **Type Safety** - Full TypeScript support throughout  
-
-## 🔌 Creating Custom Scenarios
-
-Building a new scenario is simple! Here's a minimal example:
-
-```typescript
-// websocket-server/src/scenarios/my-scenario.ts
-import { CallScenario } from './types';
-
-export const myScenario: CallScenario = {
-  id: 'my-scenario',
-  name: 'My Custom Scenario',
-  description: 'A custom call scenario',
-  schema: {
-    fields: [
-      {
-        key: 'topic',
-        label: 'Discussion Topic',
-        type: 'text',
-        required: true,
-        placeholder: 'What should we talk about?'
-      }
-    ],
-    voiceOptions: [
-      { value: 'ash', label: 'Ashley', description: 'Professional tone' }
-    ]
-  },
-  
-  generateInstructions: (config) => 
-    `You are discussing ${config.topic}. Be helpful and engaging.`,
-    
-  generateGreeting: (config) => 
-    `Hello! I'm excited to discuss ${config.topic} with you today.`
-};
-```
-
-Then register it in `scenarios/index.ts` and you're done! The frontend will automatically detect and display your new scenario.
-
-## 🌍 Supported Regions
-
-| Region | Flag | Country Code | Status |
-|--------|------|--------------|---------|
-| United States | 🇺🇸 | +1 | Required (fallback) |
-| Australia | 🇦🇺 | +61 | Optional |
-| India | 🇮🇳 | +91 | Optional |
-
-**Smart Fallback**: If regional numbers aren't configured, the system automatically uses the US number.
-
-## 📚 Complete Documentation
-
-For detailed setup, configuration, and development guides:
-
-**🔗 [View Documentation](https://phone-screen.acedit.ai/documentation/)**
-
-### Quick Links
-
-- **[Scenario Development Guide](https://phone-screen.acedit.ai/documentation/scenarios/creating-scenarios)** - Build custom scenarios
-- **[Environment Setup Guide](https://phone-screen.acedit.ai/documentation/getting-started/environment-setup)** - Complete configuration
-- **[Architecture Guide](https://phone-screen.acedit.ai/documentation/architecture/scenario-system)** - How the plugin system works  
-- **[Deployment Guide](https://phone-screen.acedit.ai/documentation/deployment)** - Production deployment
-- **[API Reference](https://phone-screen.acedit.ai/documentation/api/scenario-api)** - Complete API documentation
-
-## 🛠️ Development
-
-### Environment Files Needed
-
-Create these files with your API keys and configuration:
-
-- `webapp/.env.local` - Twilio credentials, database URL, verification keys
-- `websocket-server/.env` - OpenAI API key, rate limiting config
-
-See the [Environment Setup Guide](https://phone-screen.acedit.ai/documentation/getting-started/environment-setup) for complete details.
-
-### Contributing
-
-We welcome contributions! Please see our [Development Workflow](https://phone-screen.acedit.ai/documentation/development/workflow) for:
-
-- Branch strategy and commit conventions
-- Code quality standards and testing  
-- PR review process
-- Scenario development guidelines
+### 🔧 **Enhanced Developer Experience**
+- **Simplified Architecture**: Clean separation of frontend/backend
+- **Better Error Handling**: Graceful fallbacks and clear messages
+- **Comprehensive Documentation**: Full guides for setup and deployment
+- **Type Safety**: Full TypeScript support throughout
 
 ## 🚀 Deployment Options
 
