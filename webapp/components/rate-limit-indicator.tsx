@@ -50,8 +50,14 @@ export default function RateLimitIndicator({ rateLimitStatus, className = "" }: 
     );
   }
 
-  // Error state
+  // Error state - hide connection errors since API rate limiting works
   if (error) {
+    // Don't show WebSocket connection errors as they're not user-actionable
+    // The main rate limiting still works via API calls
+    if (error.includes('connection not available') || error.includes('Connection error')) {
+      return null; // Hide the error, API rate limiting will handle it
+    }
+    
     return (
       <Alert className={`border-yellow-200 bg-yellow-50 ${className}`} variant="destructive">
         <AlertTriangle className="h-4 w-4" />
