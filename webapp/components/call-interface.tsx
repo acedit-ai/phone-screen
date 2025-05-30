@@ -8,8 +8,9 @@ import PhoneInputComponent from "@/components/phone-input";
 import { Item } from "@/components/types";
 import handleRealtimeEvent from "@/lib/handle-realtime-event";
 import { Card, CardContent } from "@/components/ui/card";
-import { Phone, Zap, ExternalLink } from "lucide-react";
+import { Phone, Zap, ExternalLink, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import Link from "next/link";
 import { makeVerifiedPost } from "@/lib/api";
 import { scenarioService } from "@/lib/scenario-service";
@@ -21,6 +22,7 @@ const CallInterface = () => {
   const [callStatus, setCallStatus] = useState<CallStatus>("idle");
   const [ws, setWs] = useState<WebSocket | null>(null);
   const [currentCallSid, setCurrentCallSid] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const timerRef = useRef<number | null>(null);
 
   // Scenario system state
@@ -243,6 +245,7 @@ const CallInterface = () => {
   const handleStartCall = async (phoneNumber: string) => {
     try {
       setCallStatus("calling");
+      setErrorMessage(null); // Clear any previous errors
 
       const response = await makeVerifiedPost("/api/call/outbound", {
         phoneNumber,
@@ -256,7 +259,8 @@ const CallInterface = () => {
 
       const data = await response.json();
 
-      if (data.success) {
+      // Check if the response was successful
+      if (response.ok && data.success) {
         setCurrentCallSid(data.callSid);
         setCallStatus("ringing");
 
@@ -266,12 +270,19 @@ const CallInterface = () => {
           timerRef.current = null;
         }, 3000);
       } else {
-        console.error("Failed to start call:", data.error);
-        setCallStatus("ended");
+        // Handle errors properly
+        const errorMessage = data.error || "Failed to start call";
+        console.error("Failed to start call:", errorMessage);
+        
+        // Show user-friendly error message
+        setErrorMessage(errorMessage);
+        
+        setCallStatus("idle"); // Return to idle state instead of "ended"
       }
     } catch (error) {
       console.error("Error starting call:", error);
-      setCallStatus("ended");
+      setErrorMessage("Network error occurred. Please try again.");
+      setCallStatus("idle"); // Return to idle state instead of "ended"
     }
   };
 
@@ -352,6 +363,7 @@ const CallInterface = () => {
     setCallStatus("idle");
     setItems([]);
     setCurrentCallSid(null);
+    setErrorMessage(null); // Clear any error messages
     
     console.log("State reset for new practice session");
   };
@@ -620,6 +632,25 @@ const CallInterface = () => {
 
           {/* Right column: Phone Input */}
           <div className="space-y-6">
+            {/* Error Message Display */}
+            {errorMessage && (
+              <Alert variant="destructive" className="border-red-200 bg-red-50">
+                <AlertTriangle className="h-4 w-4" />
+                <AlertDescription>
+                  <div className="font-medium">Unable to start call</div>
+                  <div className="text-sm mt-1">{errorMessage}</div>
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    className="mt-2 text-xs"
+                    onClick={() => setErrorMessage(null)}
+                  >
+                    Dismiss
+                  </Button>
+                </AlertDescription>
+              </Alert>
+            )}
+            
             {isConfigurationReady ? (
               <Card className="w-full lg:sticky lg:top-8">
                 <CardContent className="p-6">

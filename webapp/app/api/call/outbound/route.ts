@@ -99,8 +99,9 @@ export async function POST(request: NextRequest) {
       
       return NextResponse.json(
         { 
-          error: rateLimitResult.error || "Too many requests. Please try again later.",
-          type: 'ip_rate_limit'
+          error: "You've reached your free call limit. Try again in an hour or upgrade for unlimited calls.",
+          type: 'rate_limit',
+          retryAfter: Math.ceil((rateLimitResult.resetTime - Date.now()) / 1000),
         },
         { 
           status: 429,
