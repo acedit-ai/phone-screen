@@ -10,14 +10,12 @@ import {
   Region,
 } from "@/lib/regions";
 
-// Persistent rate limiting imports
+// Simple rate limiting imports (database-backed phone rate limiting now handled by websocket-server)
 import {
-  persistentRateLimit,
-  persistentPhoneRateLimit,
-  PERSISTENT_RATE_LIMIT_CONFIGS,
-  getPersistentRateLimitHeaders,
+  rateLimit,
+  RATE_LIMIT_CONFIGS,
   getClientIP,
-} from "@/lib/persistentRateLimiting";
+} from "@/lib/rateLimiting";
 
 // Extend region with server-side phone number
 interface ServerRegion extends Region {
@@ -88,29 +86,34 @@ export async function POST(request: NextRequest) {
   const clientIP = getClientIP(request);
   
   try {
-    // Apply persistent rate limiting for call endpoints (IP-based)
-    const ipRateLimitResult = await persistentRateLimit(
+    // Apply simple rate limiting for call endpoints (IP-based only)
+    // Phone-specific rate limiting is now handled by the websocket-server database
+    const rateLimitResult = await rateLimit(
       request, 
-      PERSISTENT_RATE_LIMIT_CONFIGS.calls, 
+      RATE_LIMIT_CONFIGS.calls, 
       'outbound_call'
     );
 
-    if (!ipRateLimitResult.success) {
+    if (!rateLimitResult.success) {
       console.warn(`🚫 Outbound call IP rate limit exceeded for IP: ${clientIP}`);
       
       return NextResponse.json(
         { 
-          error: ipRateLimitResult.error,
+          error: rateLimitResult.error || "Too many requests. Please try again later.",
           type: 'ip_rate_limit'
         },
         { 
           status: 429,
-          headers: getPersistentRateLimitHeaders(ipRateLimitResult, PERSISTENT_RATE_LIMIT_CONFIGS.calls)
+          headers: {
+            'X-RateLimit-Limit': RATE_LIMIT_CONFIGS.calls.maxRequests.toString(),
+            'X-RateLimit-Remaining': rateLimitResult.remaining.toString(),
+            'X-RateLimit-Reset': Math.ceil(rateLimitResult.resetTime / 1000).toString(),
+          }
         }
       );
     }
 
-    // Parse request body to get phone number for phone-specific rate limiting
+    // Parse request body to get phone number
     const { phoneNumber, jobConfiguration } = await request.json();
 
     if (!phoneNumber) {
@@ -118,39 +121,19 @@ export async function POST(request: NextRequest) {
         { error: "Phone number is required" },
         { 
           status: 400,
-          headers: getPersistentRateLimitHeaders(ipRateLimitResult, PERSISTENT_RATE_LIMIT_CONFIGS.calls)
-        }
-      );
-    }
-
-    // Apply persistent rate limiting for phone numbers
-    const phoneRateLimitResult = await persistentPhoneRateLimit(
-      phoneNumber,
-      request
-    );
-
-    if (!phoneRateLimitResult.success) {
-      console.warn(`🚫 Phone number rate limit exceeded for ${phoneNumber}`);
-      
-      return NextResponse.json(
-        { 
-          error: phoneRateLimitResult.error,
-          type: 'phone_rate_limit',
-          phoneNumber: phoneNumber
-        },
-        { 
-          status: 429,
           headers: {
-            ...getPersistentRateLimitHeaders(ipRateLimitResult, PERSISTENT_RATE_LIMIT_CONFIGS.calls),
-            'X-Phone-RateLimit-Limit': PERSISTENT_RATE_LIMIT_CONFIGS.phone.maxCalls?.toString() || '2',
-            'X-Phone-RateLimit-Remaining': phoneRateLimitResult.remaining.toString(),
-            'X-Phone-RateLimit-Reset': Math.ceil(phoneRateLimitResult.resetTime / 1000).toString(),
+            'X-RateLimit-Limit': RATE_LIMIT_CONFIGS.calls.maxRequests.toString(),
+            'X-RateLimit-Remaining': rateLimitResult.remaining.toString(),
+            'X-RateLimit-Reset': Math.ceil(rateLimitResult.resetTime / 1000).toString(),
           }
         }
       );
     }
 
-    console.log(`📞 Outbound call request from ${clientIP} to ${phoneNumber} (IP: ${ipRateLimitResult.remaining} calls remaining, Phone: ${phoneRateLimitResult.remaining} calls remaining)`);
+    // Note: Phone-specific rate limiting (2 calls per hour) is now handled by the websocket-server
+    // The websocket-server will check the phone rate limit when the call is initiated
+    
+    console.log(`📞 Outbound call request from ${clientIP} to ${phoneNumber} (IP: ${rateLimitResult.remaining} calls remaining)`);
 
     // Validate Twilio configuration
     if (!accountSid || !authToken) {
@@ -158,7 +141,11 @@ export async function POST(request: NextRequest) {
         { error: "Twilio configuration missing" },
         { 
           status: 500,
-          headers: getPersistentRateLimitHeaders(ipRateLimitResult, PERSISTENT_RATE_LIMIT_CONFIGS.calls)
+          headers: {
+            'X-RateLimit-Limit': RATE_LIMIT_CONFIGS.calls.maxRequests.toString(),
+            'X-RateLimit-Remaining': rateLimitResult.remaining.toString(),
+            'X-RateLimit-Reset': Math.ceil(rateLimitResult.resetTime / 1000).toString(),
+          }
         }
       );
     }
@@ -169,7 +156,11 @@ export async function POST(request: NextRequest) {
         { error: "Invalid phone number format" },
         { 
           status: 400,
-          headers: getPersistentRateLimitHeaders(ipRateLimitResult, PERSISTENT_RATE_LIMIT_CONFIGS.calls)
+          headers: {
+            'X-RateLimit-Limit': RATE_LIMIT_CONFIGS.calls.maxRequests.toString(),
+            'X-RateLimit-Remaining': rateLimitResult.remaining.toString(),
+            'X-RateLimit-Reset': Math.ceil(rateLimitResult.resetTime / 1000).toString(),
+          }
         }
       );
     }
@@ -189,7 +180,11 @@ export async function POST(request: NextRequest) {
         },
         { 
           status: 400,
-          headers: getPersistentRateLimitHeaders(ipRateLimitResult, PERSISTENT_RATE_LIMIT_CONFIGS.calls)
+          headers: {
+            'X-RateLimit-Limit': RATE_LIMIT_CONFIGS.calls.maxRequests.toString(),
+            'X-RateLimit-Remaining': rateLimitResult.remaining.toString(),
+            'X-RateLimit-Reset': Math.ceil(rateLimitResult.resetTime / 1000).toString(),
+          }
         }
       );
     }
@@ -198,15 +193,16 @@ export async function POST(request: NextRequest) {
     let fromPhoneNumber: string;
     try {
       fromPhoneNumber = getCallFromNumber(phoneNumber);
-    } catch (error) {
+    } catch (error: any) {
       return NextResponse.json(
-        {
-          error: `No local phone number configured for ${region.name}. Please contact support.`,
-          region: region.name,
-        },
+        { error: error.message },
         { 
           status: 400,
-          headers: getPersistentRateLimitHeaders(ipRateLimitResult, PERSISTENT_RATE_LIMIT_CONFIGS.calls)
+          headers: {
+            'X-RateLimit-Limit': RATE_LIMIT_CONFIGS.calls.maxRequests.toString(),
+            'X-RateLimit-Remaining': rateLimitResult.remaining.toString(),
+            'X-RateLimit-Reset': Math.ceil(rateLimitResult.resetTime / 1000).toString(),
+          }
         }
       );
     }
@@ -258,8 +254,9 @@ export async function POST(request: NextRequest) {
       fromNumber: fromPhoneNumber,
     }, {
       headers: {
-        ...getPersistentRateLimitHeaders(ipRateLimitResult, PERSISTENT_RATE_LIMIT_CONFIGS.calls),
-        'X-Phone-RateLimit-Remaining': phoneRateLimitResult.remaining.toString(),
+        'X-RateLimit-Limit': RATE_LIMIT_CONFIGS.calls.maxRequests.toString(),
+        'X-RateLimit-Remaining': rateLimitResult.remaining.toString(),
+        'X-RateLimit-Reset': Math.ceil(rateLimitResult.resetTime / 1000).toString(),
       }
     });
   } catch (error: any) {

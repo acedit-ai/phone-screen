@@ -9,6 +9,8 @@ import PhoneInput, { Country } from "react-phone-number-input";
 import "react-phone-number-input/style.css";
 import { SUPPORTED_COUNTRIES, isFromSupportedRegion } from "@/lib/regions";
 import { Turnstile } from '@marsidev/react-turnstile';
+import { useRateLimit } from "@/lib/use-rate-limit";
+import RateLimitIndicator from "@/components/rate-limit-indicator";
 
 interface PhoneInputProps {
   onStartCall: (phoneNumber: string) => void;
@@ -28,6 +30,9 @@ export default function PhoneInputComponent({
   const [verificationError, setVerificationError] = useState<string | null>(null);
   const [turnstileLoading, setTurnstileLoading] = useState(true);
 
+  // Rate limiting hook
+  const { rateLimitStatus, checkRateLimit, resetRateLimit } = useRateLimit();
+
   // Check if verification is enabled via environment variables
   const isVerificationEnabled = process.env.NEXT_PUBLIC_TURNSTILE_ENABLED === 'true';
   const hasSiteKey = !!process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
@@ -40,6 +45,15 @@ export default function PhoneInputComponent({
       console.log('🔓 Verification bypassed:', !isVerificationEnabled ? 'disabled' : 'development mode');
     }
   }, [isVerificationEnabled, isDevelopment]);
+
+  // Check rate limit when phone number changes
+  useEffect(() => {
+    if (phoneNumber && isValidPhoneNumber(phoneNumber) && isFromSupportedRegion(phoneNumber)) {
+      checkRateLimit(phoneNumber);
+    } else {
+      resetRateLimit();
+    }
+  }, [phoneNumber, checkRateLimit, resetRateLimit]);
 
   const handleTurnstileSuccess = async (token: string) => {
     setIsVerifying(true);
@@ -118,7 +132,8 @@ export default function PhoneInputComponent({
 
   const isValidPhone = isValidPhoneNumber(phoneNumber);
   const isSupportedRegion = isFromSupportedRegion(phoneNumber);
-  const canStartCall = isValidPhone && isSupportedRegion && isVerified;
+  const isRateLimited = rateLimitStatus && !rateLimitStatus.allowed;
+  const canStartCall = isValidPhone && isSupportedRegion && isVerified && !isRateLimited;
   
   // Only show verification if it's enabled, has site key, not in development, and phone is valid
   const showVerification = isVerificationEnabled && hasSiteKey && !isDevelopment && isValidPhone && isSupportedRegion && !isVerified;
@@ -180,6 +195,11 @@ export default function PhoneInputComponent({
               )}
             </div>
 
+            {/* Rate Limiting Indicator */}
+            {isValidPhone && isSupportedRegion && (
+              <RateLimitIndicator rateLimitStatus={rateLimitStatus} />
+            )}
+
             {/* Subtle Verification Section - only show when phone is valid */}
             {showVerification && (
               <div className="space-y-3">
@@ -232,6 +252,8 @@ export default function PhoneInputComponent({
               <PhoneCall className="h-4 w-4 mr-2" />
               {!isValidPhone || !isSupportedRegion ? 
                 "Enter Valid Phone Number" : 
+                isRateLimited ?
+                "Call Limit Reached" :
                 (!isVerificationEnabled || isDevelopment || isVerified) ? 
                 "Start Interview Call" :
                 "Almost Ready"

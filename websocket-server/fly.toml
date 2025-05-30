@@ -12,6 +12,10 @@ primary_region = 'syd'
 
 [build]
 
+[env]
+  NODE_ENV = 'production'
+  PORT = '8081'
+
 [http_service]
   internal_port = 8081
   force_https = true
@@ -24,3 +28,10 @@ primary_region = 'syd'
   memory = '1gb'
   cpu_kind = 'shared'
   cpus = 1
+
+# Database configuration will be added when attaching Fly Postgres
+# Example commands for setup:
+# fly postgres create --name phone-screen-db --region syd
+# fly postgres attach --app websocket-server-red-resonance-1640 phone-screen-db
+
+# This will automatically add DATABASE_URL to environment variables

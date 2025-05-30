@@ -67,11 +67,11 @@ export const RATE_LIMIT_CONFIGS = {
     maxRequests: 30,
   } as RateLimitConfig,
   
-  // Call endpoints - more restrictive
+  // Call endpoints - more restrictive (aligned with websocket-server: 1 call per hour)
   calls: {
-    windowSec: 900, // 15 minutes
-    maxRequests: 10,
-    maxCalls: 3,
+    windowSec: 3600, // 1 hour
+    maxRequests: 1,   // 1 call per hour (reduced from 5)
+    maxCalls: 1,      // Same limit for call-specific logic
   } as RateLimitConfig,
   
   // Authentication endpoints - very restrictive

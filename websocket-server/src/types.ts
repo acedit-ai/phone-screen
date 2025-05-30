@@ -42,3 +42,44 @@ export interface FunctionHandler {
   schema: FunctionSchema;
   handler: (args: any) => Promise<string>;
 }
+
+// Rate Limiting WebSocket Message Types
+
+/**
+ * Message sent from client to check rate limit status for a phone number
+ */
+export interface RateLimitCheckMessage {
+  type: 'rate_limit_check';
+  phoneNumber: string;
+}
+
+/**
+ * Message sent from server with rate limit status
+ */
+export interface RateLimitStatusMessage {
+  type: 'rate_limit_status';
+  phoneNumber: string;
+  allowed: boolean;
+  remaining: number;
+  resetTime: number; // timestamp when limit resets
+  reason?: string;
+}
+
+/**
+ * Message sent from server when rate limit is exceeded during a call
+ */
+export interface RateLimitExceededMessage {
+  type: 'rate_limit_exceeded';
+  phoneNumber: string;
+  reason: string;
+  resetTime: number;
+}
+
+/**
+ * Union type for all WebSocket messages
+ */
+export type WebSocketMessage = 
+  | RateLimitCheckMessage 
+  | RateLimitStatusMessage 
+  | RateLimitExceededMessage 
+  | { type: string; [key: string]: any }; // Allow other message types
