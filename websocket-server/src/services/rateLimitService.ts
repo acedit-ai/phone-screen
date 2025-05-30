@@ -347,7 +347,7 @@ export class RateLimitService {
     try {
       // Use database for persistent rate limiting (max 2 calls per hour)
       const dbResult = await rateLimitDB.checkPhoneRateLimit(
-        phoneNumber,
+        this.normalizePhoneNumber(phoneNumber),
         this.config.phone.maxCallsPerNumber, // default 2
         this.config.phone.windowMs, // default 1 hour
         undefined // region will be detected from phone number
@@ -357,8 +357,8 @@ export class RateLimitService {
       const result: RateLimitResult = {
         allowed: dbResult.allowed,
         remaining: dbResult.remaining,
-        resetTime: dbResult.resetTime - Date.now(),
-        reason: dbResult.reason,
+        resetTime: Math.max(0, dbResult.resetTime - Date.now()),
+        ...(dbResult.reason ? { reason: dbResult.reason } : {}),
       };
 
       // Log the result
@@ -451,7 +451,7 @@ export class RateLimitService {
         console.warn(
           `🚫 Phone number ${normalizedPhoneNumber} has exceeded call limit (${
             this.config.phone.maxCallsPerNumber
-          } calls per ${this.config.phone.windowMs / 60000} minutes)${
+          } calls per ${Math.ceil(this.config.phone.windowMs / 60000)} minutes)${
             ipAddress ? ` - IP: ${ipAddress}` : ""
           }`
         );
@@ -507,7 +507,7 @@ export class RateLimitService {
 
     try {
       const dbResult = await rateLimitDB.getPhoneRateLimitStatus(
-        phoneNumber,
+        this.normalizePhoneNumber(phoneNumber),
         this.config.phone.maxCallsPerNumber,
         this.config.phone.windowMs
       );
@@ -515,8 +515,8 @@ export class RateLimitService {
       return {
         allowed: dbResult.allowed,
         remaining: dbResult.remaining,
-        resetTime: dbResult.resetTime - Date.now(),
-        reason: dbResult.reason,
+        resetTime: Math.max(0, dbResult.resetTime - Date.now()),
+        ...(dbResult.reason ? { reason: dbResult.reason } : {}),
       };
 
     } catch (error) {
@@ -631,7 +631,7 @@ export class RateLimitService {
 
     if (this.config.monitoring.logViolations) {
       console.warn(
-        `⚠️  Rate limit violation from ${ipAddress}: ${violationType} (count: ${violationEntry.count})`
+        `🚫 IP ${ipAddress} violated rate limit: ${violationType}`
       );
     }
   }

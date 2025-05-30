@@ -87,7 +87,7 @@ export class RateLimitDB {
       max: this.config.maxConnections,
       idleTimeoutMillis: this.config.idleTimeoutMs,
       connectionTimeoutMillis: this.config.connectionTimeoutMs,
-      ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+      ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: true } : false,
     });
 
     this.pool.on('error', (err: Error) => {
@@ -209,85 +209,59 @@ export class RateLimitDB {
     const client = await this.pool.connect();
 
     try {
-      // Begin transaction
-      await client.query('BEGIN');
+      // Use atomic UPSERT to prevent race conditions
+      // This handles both new entries and window resets atomically
+      const result = await client.query(`
+        INSERT INTO phone_rate_limits(phone_hash, call_count, window_start, region)
+        VALUES ($1, 1, $2, $3)
+        ON CONFLICT (phone_hash)
+        DO UPDATE SET
+          call_count = CASE
+            WHEN phone_rate_limits.window_start = EXCLUDED.window_start 
+              THEN phone_rate_limits.call_count + 1
+            ELSE 1
+          END,
+          window_start = EXCLUDED.window_start,
+          region = COALESCE(EXCLUDED.region, phone_rate_limits.region),
+          updated_at = NOW()
+        RETURNING call_count, window_start
+      `, [phoneHash, windowStart, region]);
 
-      // Get existing entry
-      const existingResult = await client.query(
-        'SELECT call_count, window_start, region FROM phone_rate_limits WHERE phone_hash = $1',
-        [phoneHash]
-      );
+      const { call_count: currentCount } = result.rows[0];
+      const resetTime = windowStart + windowMs;
 
-      let currentCount = 0;
-      let storedRegion = region;
+      // Check if limit exceeded (after increment)
+      if (currentCount > maxCalls) {
+        // Rollback the increment since we exceeded the limit
+        await client.query(`
+          UPDATE phone_rate_limits 
+          SET call_count = call_count - 1, updated_at = NOW()
+          WHERE phone_hash = $1
+        `, [phoneHash]);
 
-      if (existingResult.rows.length > 0) {
-        const entry = existingResult.rows[0];
-        storedRegion = region || entry.region;
+        console.log(`🚫 Phone rate limit exceeded: ${currentCount-1}/${maxCalls} calls (attempted ${currentCount})`);
 
-        // Check if we're in the same window
-        if (entry.window_start === windowStart) {
-          currentCount = entry.call_count;
-        } else {
-          // New window, reset count
-          await client.query(
-            `UPDATE phone_rate_limits 
-             SET call_count = 0, window_start = $1, region = $2, updated_at = NOW() 
-             WHERE phone_hash = $3`,
-            [windowStart, storedRegion, phoneHash]
-          );
-          currentCount = 0;
-        }
-      } else {
-        // Create new entry
-        await client.query(
-          `INSERT INTO phone_rate_limits (phone_hash, call_count, window_start, region) 
-           VALUES ($1, 0, $2, $3)`,
-          [phoneHash, windowStart, region]
-        );
-        currentCount = 0;
-      }
-
-      // Check if limit exceeded
-      if (currentCount >= maxCalls) {
-        await client.query('COMMIT');
-        
-        const resetTime = windowStart + windowMs;
         return {
           allowed: false,
-          currentCount,
+          currentCount: currentCount - 1,
           remaining: 0,
           resetTime,
           reason: `Phone number has reached the limit of ${maxCalls} calls per hour`,
         };
       }
 
-      // Increment count
-      const updateResult = await client.query(
-        `UPDATE phone_rate_limits 
-         SET call_count = call_count + 1, region = $1, updated_at = NOW() 
-         WHERE phone_hash = $2 
-         RETURNING call_count`,
-        [storedRegion, phoneHash]
-      );
+      const remaining = Math.max(0, maxCalls - currentCount);
 
-      await client.query('COMMIT');
-
-      const newCount = updateResult.rows[0]?.call_count || currentCount + 1;
-      const remaining = Math.max(0, maxCalls - newCount);
-      const resetTime = windowStart + windowMs;
-
-      console.log(`📞 Phone rate limit check: ${newCount}/${maxCalls} calls used (${remaining} remaining)`);
+      console.log(`📞 Phone rate limit check: ${currentCount}/${maxCalls} calls used (${remaining} remaining)`);
 
       return {
         allowed: true,
-        currentCount: newCount,
+        currentCount,
         remaining,
         resetTime,
       };
 
     } catch (error) {
-      await client.query('ROLLBACK');
       console.error('❌ Phone rate limit check failed:', error);
       
       // Graceful fallback on database error
