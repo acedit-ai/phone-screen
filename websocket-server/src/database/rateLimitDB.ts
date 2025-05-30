@@ -268,7 +268,7 @@ export class RateLimitDB {
       return {
         allowed: true,
         currentCount: 0,
-        remaining: maxCalls - 1,
+        remaining: maxCalls,
         resetTime: Date.now() + windowMs,
       };
     } finally {
