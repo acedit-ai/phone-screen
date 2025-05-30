@@ -27,10 +27,31 @@ import {
 // Verification middleware import
 import { requireVerification, optionalVerification } from "./middleware/verificationMiddleware";
 
+// Database imports
+import { rateLimitDB } from "./database/rateLimitDB";
+
 dotenv.config();
 
 // Initialize scenarios before starting the server
 initializeScenarios();
+
+// Initialize database
+async function initializeDatabase() {
+  try {
+    console.log('📊 Initializing phone rate limiting database...');
+    const isConnected = await rateLimitDB.testConnection();
+    
+    if (isConnected) {
+      await rateLimitDB.initializeSchema();
+      console.log('✅ Phone rate limiting database initialized successfully');
+    } else {
+      console.log('⚠️ Database connection not available - using in-memory fallback for rate limiting');
+    }
+  } catch (error) {
+    console.error('❌ Failed to initialize database:', error);
+    console.log('⚠️ Continuing with in-memory fallback for rate limiting');
+  }
+}
 
 const PORT = parseInt(process.env.PORT || "8081", 10);
 const PUBLIC_URL = process.env.PUBLIC_URL || "";
@@ -339,37 +360,52 @@ wss.on("connection", async (ws: WebSocket, req: IncomingMessage) => {
   }
 });
 
-server.listen(PORT, () => {
-  console.log(`🚀 WebSocket server running on http://localhost:${PORT}`);
-  console.log(`📞 TwiML endpoint: http://localhost:${PORT}/twiml`);
-  console.log(`🔌 Call WebSocket: ws://localhost:${PORT}/call`);
-  console.log(`📊 Logs WebSocket: ws://localhost:${PORT}/logs`);
-  console.log(`🛡️  Health check: http://localhost:${PORT}/health`);
-  console.log(`📊 Metrics: http://localhost:${PORT}/metrics`);
-  if (PUBLIC_URL) {
-    console.log(`🌐 Public URL: ${PUBLIC_URL}`);
-  } else {
-    console.log(
-      "⚠️  PUBLIC_URL not set - make sure to configure for production"
-    );
-  }
-});
+// Start server with database initialization
+async function startServer() {
+  // Initialize database first
+  await initializeDatabase();
+
+  // Then start the HTTP server
+  server.listen(PORT, () => {
+    console.log(`🚀 WebSocket server running on http://localhost:${PORT}`);
+    console.log(`📞 TwiML endpoint: http://localhost:${PORT}/twiml`);
+    console.log(`🔌 Call WebSocket: ws://localhost:${PORT}/call`);
+    console.log(`📊 Logs WebSocket: ws://localhost:${PORT}/logs`);
+    console.log(`🛡️  Health check: http://localhost:${PORT}/health`);
+    console.log(`📊 Metrics: http://localhost:${PORT}/metrics`);
+    if (PUBLIC_URL) {
+      console.log(`🌐 Public URL: ${PUBLIC_URL}`);
+    } else {
+      console.log(
+        "⚠️  PUBLIC_URL not set - make sure to configure for production"
+      );
+    }
+  });
+}
 
 // Graceful shutdown handling
-process.on('SIGTERM', () => {
+process.on('SIGTERM', async () => {
   console.log('🛑 SIGTERM received, shutting down gracefully...');
   rateLimitService.shutdown();
+  await rateLimitDB.close();
   server.close(() => {
     console.log('✅ Server closed');
     process.exit(0);
   });
 });
 
-process.on('SIGINT', () => {
+process.on('SIGINT', async () => {
   console.log('🛑 SIGINT received, shutting down gracefully...');
   rateLimitService.shutdown();
+  await rateLimitDB.close();
   server.close(() => {
     console.log('✅ Server closed');
     process.exit(0);
   });
+});
+
+// Start the server
+startServer().catch((error) => {
+  console.error('❌ Failed to start server:', error);
+  process.exit(1);
 });

@@ -11,6 +11,7 @@
 
 import NodeCache from "node-cache";
 import { RateLimitConfig } from "../config/rateLimiting";
+import { rateLimitDB, RateLimitCheckResult } from "../database/rateLimitDB";
 
 /**
  * Interface representing a connection tracking entry
@@ -328,6 +329,7 @@ export class RateLimitService {
 
   /**
    * Checks if a call to a specific phone number should be allowed
+   * Now uses database for persistent rate limiting across deployments
    *
    * @param phoneNumber - Phone number being called (in E.164 format)
    * @param ipAddress - IP address of the calling client (for logging)
@@ -337,13 +339,67 @@ export class RateLimitService {
     phoneNumber: string,
     ipAddress?: string
   ): Promise<RateLimitResult> {
-    // Normalize phone number for consistent tracking
-    const normalizedPhoneNumber = this.normalizePhoneNumber(phoneNumber);
-
     // Skip if phone number rate limiting is disabled
     if (!this.config.phone.enabled) {
       return { allowed: true };
     }
+
+    try {
+      // Use database for persistent rate limiting (max 2 calls per hour)
+      const dbResult = await rateLimitDB.checkPhoneRateLimit(
+        phoneNumber,
+        this.config.phone.maxCallsPerNumber, // default 2
+        this.config.phone.windowMs, // default 1 hour
+        undefined // region will be detected from phone number
+      );
+
+      // Convert database result to our interface
+      const result: RateLimitResult = {
+        allowed: dbResult.allowed,
+        remaining: dbResult.remaining,
+        resetTime: dbResult.resetTime - Date.now(),
+        reason: dbResult.reason,
+      };
+
+      // Log the result
+      if (this.config.monitoring.enableDetailedLogging) {
+        const normalizedPhone = this.normalizePhoneNumber(phoneNumber);
+        if (dbResult.allowed) {
+          console.log(
+            `📞 Phone call allowed to ${normalizedPhone} (${dbResult.remaining} calls remaining)${
+              ipAddress ? ` - IP: ${ipAddress}` : ""
+            }`
+          );
+        } else {
+          console.warn(
+            `🚫 Phone number ${normalizedPhone} rate limit exceeded${
+              ipAddress ? ` - IP: ${ipAddress}` : ""
+            }: ${dbResult.reason}`
+          );
+        }
+      }
+
+      return result;
+
+    } catch (error) {
+      console.error('❌ Database phone rate limit check failed:', error);
+      
+      // Fallback to in-memory rate limiting on database error
+      console.log('📱 Falling back to in-memory phone rate limiting');
+      return this.checkPhoneNumberLimitFallback(phoneNumber, ipAddress);
+    }
+  }
+
+  /**
+   * Fallback in-memory phone rate limiting when database is unavailable
+   * This preserves the original logic as a backup
+   */
+  private async checkPhoneNumberLimitFallback(
+    phoneNumber: string,
+    ipAddress?: string
+  ): Promise<RateLimitResult> {
+    // Normalize phone number for consistent tracking
+    const normalizedPhoneNumber = this.normalizePhoneNumber(phoneNumber);
 
     const now = Date.now();
     const windowStart = now - this.config.phone.windowMs;
@@ -436,6 +492,37 @@ export class RateLimitService {
       remaining,
       resetTime: Math.max(0, resetTime),
     };
+  }
+
+  /**
+   * Get phone rate limit status without incrementing count
+   * Uses database for accurate status checking
+   */
+  public async getPhoneRateLimitStatus(
+    phoneNumber: string
+  ): Promise<RateLimitResult> {
+    if (!this.config.phone.enabled) {
+      return { allowed: true };
+    }
+
+    try {
+      const dbResult = await rateLimitDB.getPhoneRateLimitStatus(
+        phoneNumber,
+        this.config.phone.maxCallsPerNumber,
+        this.config.phone.windowMs
+      );
+
+      return {
+        allowed: dbResult.allowed,
+        remaining: dbResult.remaining,
+        resetTime: dbResult.resetTime - Date.now(),
+        reason: dbResult.reason,
+      };
+
+    } catch (error) {
+      console.error('❌ Failed to get phone rate limit status:', error);
+      return { allowed: true };
+    }
   }
 
   /**

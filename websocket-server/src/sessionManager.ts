@@ -1,8 +1,9 @@
 import { RawData, WebSocket } from "ws";
 import dedent from "dedent";
 import functions from "./functionHandlers";
-import { Session } from "./types";
+import { Session, RateLimitCheckMessage, RateLimitStatusMessage } from "./types";
 import { scenarioRegistry, getScenario, CallScenarioConfig, ScenarioSession } from "./scenarios";
+import { rateLimitDB } from "./database/rateLimitDB";
 
 // Map to store multiple sessions, keyed by streamSid (or temporary ID)
 const sessions = new Map<string, Session>();
@@ -491,6 +492,12 @@ function handleFrontendMessage(data: RawData, ws: WebSocket) {
 }
 
 function handleFrontendMessageForSession(msg: any, session: Session) {
+  // Handle rate limit checking
+  if (msg.type === "rate_limit_check") {
+    handleRateLimitCheck(msg as RateLimitCheckMessage, session);
+    return;
+  }
+
   // Handle scenario configuration
   if (msg.type === "scenario.configuration") {
     console.log(
@@ -619,6 +626,54 @@ function handleFrontendMessageForSession(msg: any, session: Session) {
 
   if (msg.type === "session.update") {
     session.saved_config = msg.session;
+  }
+}
+
+/**
+ * Handle rate limit check requests from frontend
+ */
+async function handleRateLimitCheck(msg: RateLimitCheckMessage, session: Session) {
+  console.log(`📞 Rate limit check requested for phone: ${msg.phoneNumber}`);
+
+  try {
+    // Check rate limit status without incrementing
+    const rateLimitResult = await rateLimitDB.getPhoneRateLimitStatus(
+      msg.phoneNumber,
+      2, // max 2 calls per hour
+      60 * 60 * 1000 // 1 hour window
+    );
+
+    // Send response to frontend
+    const response: RateLimitStatusMessage = {
+      type: 'rate_limit_status',
+      phoneNumber: msg.phoneNumber,
+      allowed: rateLimitResult.allowed,
+      remaining: rateLimitResult.remaining,
+      resetTime: rateLimitResult.resetTime,
+      reason: rateLimitResult.reason,
+    };
+
+    if (session.frontendConn && isOpen(session.frontendConn)) {
+      jsonSend(session.frontendConn, response);
+      console.log(`📤 Sent rate limit status: ${rateLimitResult.allowed ? 'allowed' : 'blocked'} (${rateLimitResult.remaining} remaining)`);
+    }
+
+  } catch (error) {
+    console.error('❌ Failed to check rate limit:', error);
+    
+    // Send error response
+    const errorResponse: RateLimitStatusMessage = {
+      type: 'rate_limit_status',
+      phoneNumber: msg.phoneNumber,
+      allowed: true, // Allow on error for graceful degradation
+      remaining: 2,
+      resetTime: Date.now() + 60 * 60 * 1000,
+      reason: 'Rate limit check failed - allowing call',
+    };
+
+    if (session.frontendConn && isOpen(session.frontendConn)) {
+      jsonSend(session.frontendConn, errorResponse);
+    }
   }
 }
 
