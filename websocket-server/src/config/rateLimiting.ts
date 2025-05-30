@@ -120,7 +120,7 @@ export const DEFAULT_RATE_LIMIT_CONFIG: RateLimitConfig = {
   },
   websocket: {
     maxConnectionsPerIP: 2, // 2 concurrent connections per IP
-    maxCallsPerHour: 5, // 5 calls per hour per IP
+    maxCallsPerHour: 1, // 1 call per hour per IP (reduced from 5)
     maxGlobalConcurrentCalls: 10, // 10 total concurrent calls
     maxGlobalConcurrentConnections: 10, // 10 total concurrent connections
     maxSessionDuration: 5 * 60 * 1000, // 5 minutes per session (reduced from 10)
